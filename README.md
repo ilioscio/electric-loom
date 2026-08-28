@@ -79,6 +79,8 @@ in whole cycles per loop, a depth as a fraction of that control's range, a phase
 the two noise shapes. The marker on the slider track shows where the control actually is on the
 frame being rendered.
 
+![one loop with five controls animated](motion.jpg)
+
 **This cannot break the loop, and that is a property of the arithmetic rather than a promise.**
 `render(t, p)` is already exactly periodic in `t` for any fixed `p`. Every modulator is exactly
 periodic in `t`. So `render(1, p(1)) = render(1, p(0)) = render(0, p(0))`, and the loop closes for
