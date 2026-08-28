@@ -88,6 +88,46 @@ label.lbl{font-size:11px;color:var(--dim);flex:0 0 auto}
 .ctl.isint input[type=range]::-webkit-slider-thumb{box-shadow:0 0 0 1px var(--acc3),0 0 9px -1px var(--acc3)}
 .ctl .hint{font-size:10px;color:var(--dim2);margin-top:1px}
 
+/* ---- modulation ---- */
+.ctl .modbtn{
+  flex:0 0 auto;width:19px;height:17px;border-radius:4px;border:1px solid var(--line2);
+  background:#141729;color:var(--dim2);font-size:12px;line-height:1;display:grid;place-items:center;
+  transition:.13s;padding:0
+}
+.ctl .modbtn:hover{color:var(--acc2);border-color:var(--acc2)}
+.ctl .modbtn.on{color:#12030f;background:linear-gradient(180deg,var(--acc2),#c93bab);border-color:var(--acc2);
+  box-shadow:0 0 10px -2px var(--acc2)}
+.trackwrap{position:relative}
+.trackwrap .modmark{
+  position:absolute;top:4px;height:8px;width:2px;border-radius:1px;background:var(--acc2);
+  box-shadow:0 0 7px 0 var(--acc2);pointer-events:none;display:none;
+  left:calc(6px + (100% - 12px) * var(--mod,0));margin-left:-1px
+}
+.ctl.modon .trackwrap .modmark{display:block}
+.ctl.modon .top .name{color:var(--acc2)}
+.modpanel{
+  border:1px solid #3a1f38;border-left:2px solid var(--acc2);border-radius:0 6px 6px 0;
+  background:#150d18;padding:8px 9px 9px;margin:5px 0 2px
+}
+.modpanel .mtop{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.modpanel .mtop select{flex:1;font-size:11px;padding:3px 5px}
+.modpanel .live{
+  font:10px/1 var(--mono);color:var(--acc2);background:#2a0f24;border:1px solid #4d1f42;
+  border-radius:4px;padding:3px 5px;min-width:48px;text-align:right;flex:0 0 auto
+}
+.modpanel .ctl .top .name{color:var(--dim2)}
+.modpanel .ctl .top .val{min-width:40px;padding:2px 4px}
+.modpanel .seedrow{display:flex;align-items:center;gap:6px;margin-top:6px}
+.modpanel .seedrow span{font-size:10px;color:var(--dim2);flex:1}
+.modpanel .jump{font-size:10px;color:var(--warn);margin-top:6px;line-height:1.4}
+.modrow{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:6px;
+  padding:5px 7px;background:#0c0a14;margin-bottom:5px}
+.modrow .nm{flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modrow .sh{font:9.5px/1 var(--mono);color:var(--acc2);background:#2a0f24;border-radius:3px;padding:3px 5px;flex:0 0 auto}
+.modrow .x{color:var(--dim2);font-size:14px;line-height:1;padding:0 2px;flex:0 0 auto}
+.modrow .x:hover{color:var(--bad)}
+.modrow.off .nm,.modrow.off .sh{opacity:.4}
+
 input[type=number],input[type=text],select{
   background:#0a0b14;border:1px solid var(--line);border-radius:6px;padding:5px 7px;
   color:var(--txt);width:100%;outline:none;font-size:12px;

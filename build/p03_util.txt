@@ -224,3 +224,111 @@ function randomPalette(rnd) {
   if (rnd() < 0.5) stops[0].c = '#04030a';
   return stops;
 }
+
+/* =====================================================================
+   MODULATION SHAPES (LFOs)
+   ---------------------------------------------------------------------
+   Every shape is a function of loop position with period exactly 1, and
+   every one routes its argument through wrap1() so that the value at
+   t=1 is not merely equal to the value at t=0 but produced by the
+   identical arithmetic. That is what lets a moving control keep the
+   loop exact: render(t, p) is already periodic for fixed p, so if p is
+   periodic too then render(1, p(1)) = render(1, p(0)) = render(0, p(0)).
+   Rates are whole cycles per loop for the same reason every other rate
+   in this program is.
+   ===================================================================== */
+const wrap1 = x => x - Math.floor(x);
+
+/* deterministic value in [-1,1] from an integer index and a seed */
+function ringVal(i, seed) {
+  let h = (Math.imul(i | 0, 374761393) + Math.imul(seed | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) | 0;
+  h = h ^ (h >>> 16);
+  return ((h >>> 0) / 4294967296) * 2 - 1;
+}
+
+const LFO_SHAPES = [
+  { id: 'sine',  n: 'Sine',           smooth: true },
+  { id: 'tri',   n: 'Triangle',       smooth: true },
+  { id: 'noise', n: 'Smooth noise',   smooth: true, seeded: true },
+  { id: 'drift', n: 'Harmonic drift', smooth: true, seeded: true },
+  { id: 'swell', n: 'Swell',          smooth: true, uni: true },
+  { id: 'pulse', n: 'Pulse',          smooth: false },
+  { id: 'ramp',  n: 'Ramp',           smooth: false }
+];
+const LFO_BY_ID = {};
+LFO_SHAPES.forEach(s => LFO_BY_ID[s.id] = s);
+
+function lfoShape(shape, x, rate, seed) {
+  const r = Math.max(1, Math.round(rate || 1));
+  switch (shape) {
+    case 'tri':   return 1 - 4 * Math.abs(wrap1(r * x + 0.25) - 0.5);
+    /* The stepping shapes are offset so their discontinuity never lands on
+       the loop boundary. Unshifted, a ramp resets and a pulse flips at
+       exactly x=0, which puts the one hard edge in the whole animation on
+       the join - it reads as a broken loop rather than as a deliberate
+       strobe. Moved into the body of the cycle it reads as intended, and
+       the wrap itself stays smooth. */
+    case 'ramp':  return 2 * wrap1(r * x + 0.5) - 1;
+    case 'pulse': return wrap1(r * x + 0.25) < 0.5 ? 1 : -1;
+    case 'swell': { const v = Math.sin(Math.PI * wrap1(r * x)); return v * v; }
+    case 'noise': {
+      /* value noise around a closed ring of N points, Catmull-Rom through
+         them. Closed by construction, so it wanders like noise and still
+         arrives back where it began. */
+      const N = 2 + 2 * r;
+      const p = wrap1(x) * N;
+      const i0 = Math.floor(p), f = p - i0;
+      const g = k => ringVal(((k % N) + N) % N, seed);
+      const a = g(i0 - 1), b = g(i0), c = g(i0 + 1), d = g(i0 + 2);
+      const t2 = f * f, t3 = t2 * f;
+      const v = 0.5 * (2 * b + (c - a) * f + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+      return clamp(v, -1, 1);
+    }
+    case 'drift': {
+      /* 1/f sum over whole harmonics with seeded phases: organic wander,
+         still exactly periodic because every harmonic is an integer */
+      let sum = 0, norm = 0;
+      for (let k = 1; k <= 4; k++) {
+        const amp = 1 / k;
+        const ph = wrap1(ringVal(k * 17 + seed, seed) * 0.5 + 0.5);
+        sum += amp * Math.sin(TAU * wrap1(k * r * x + ph));
+        norm += amp;
+      }
+      return sum / norm;
+    }
+    default: return Math.sin(TAU * wrap1(r * x));
+  }
+}
+/* Is this modulator continuous all the way round?
+
+   Getting this test right took two wrong attempts, and the reason is worth
+   writing down. Comparing lfoValue(m, 0) with lfoValue(m, 1) proves nothing:
+   wrap1 sends t=1 to 0, so those are equal by construction. Comparing a hair
+   before the wrap proves nothing either, because x = wrap1(t + phase) simply
+   keeps advancing through the seam - it is continuous there for ANY rate.
+
+   The discontinuity, when the rate is not a whole number, is not at the seam
+   at all. x runs once round the circle over the loop and wraps at t = 1-phase,
+   and it is THERE that wrap1(rate*x) jumps. A rate of 1.25 puts a jump of a
+   quarter cycle in the middle of the animation. Just as visible, just as
+   wrong, simply not where you would think to look for it.
+
+   So the thing to certify is that the shape is continuous across its own wrap
+   in x. That is a direct mathematical check, which matters, because an RMS
+   pixel comparison saturates on fast-moving content and will happily call a
+   modulator that leaps most of its range "seamless". */
+function modSeamError(m) {
+  const r = m.rate, sd = (m.seed | 0) || 1, sh = m.shape || 'sine';
+  return Math.abs(lfoShape(sh, 1 - 1e-7, r, sd) - lfoShape(sh, 0, r, sd));
+}
+function lfoValue(m, t) {
+  /* Wrap t BEFORE adding the phase, not after. wrap1(1) is exactly 0, so the
+     argument at t=1 is produced by the identical arithmetic as at t=0 and the
+     two agree bit for bit. Doing it the other way round, wrap1(1 + phase) and
+     wrap1(0 + phase) differ by one ULP of a double - which sounds harmless
+     until Math.round() turns that into a whole step on an integer control, or
+     wrap1 lands either side of its own discontinuity. Both were caught
+     breaking the seam by tens of levels before this line read like this. */
+  return lfoShape(m.shape || 'sine', wrap1(wrap1(t) + (m.phase || 0)), m.rate, (m.seed | 0) || 1);
+}

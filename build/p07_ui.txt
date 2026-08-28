@@ -6,41 +6,204 @@ let seamMode = 0, seamTick = 0;
 let busy = false;
 
 function markDirty() { dirty = true; }
+const fmtVal = (v, def) => def.int ? String(Math.round(v)) :
+  (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(3));
 
-function mkSlider(def, get, set, after) {
+/* =====================================================================
+   MODULATION UI
+   Any control with a path gets a wave button. Turning it on stores an
+   LFO against that path and drops an inline panel under the slider; the
+   marker on the track then shows where the control actually is on the
+   frame being rendered.
+   ===================================================================== */
+const MOD_RATE  = PI_(0, 'rate', 'Cycles x/loop', 1, 8, 1);
+const MOD_DEPTH = P(0, 'depth', 'Depth', 0, 1, 0.25, 0.005);
+const MOD_PHASE = P(0, 'phase', 'Phase', 0, 1, 0, 0.005);
+const MOD_MASTER_DEF = [P(0, 'depth', 'Master depth', 0, 2, 1, 0.005)];
+const MOD_UI = [];
+
+const defaultMod = () => ({ on: true, shape: 'sine', rate: 1, depth: 0.25, phase: 0,
+                            seed: 1 + ((Math.random() * 9998) | 0) });
+
+function pathDef(path) {
+  const a = path.split(':');
+  if (a[0] === 'g') { const g = GEN_BY_ID[a[1]]; return g ? g.params.find(x => x.k === a[2]) : null; }
+  const list = { f: FRAME_DEF, p: POST_DEF, x: PAL_EXTRA_DEF, a: ALPHA_DEF }[a[0]];
+  return list ? list.find(d => d.k === a[1]) : null;
+}
+function pathLabel(path) {
+  const a = path.split(':'), d = pathDef(path);
+  if (a[0] === 'g') { const g = GEN_BY_ID[a[1]]; return (g ? g.name : a[1]) + '  ' + (d ? d.n : a[2]); }
+  const grp = { f: 'Framing', p: 'Grade', x: 'Palette', a: 'Alpha' }[a[0]] || a[0];
+  return grp + '  ' + (d ? d.n : a[1]);
+}
+function pruneModUi() {
+  for (let i = MOD_UI.length - 1; i >= 0; i--) if (!MOD_UI[i].wrap.isConnected) MOD_UI.splice(i, 1);
+}
+function refreshModButtons() { MOD_UI.forEach(e => e.wrap._modRefresh && e.wrap._modRefresh()); }
+function updateModCount() {
+  const n = activeModCount(), tag = $('#modCount');
+  if (tag) tag.textContent = n ? n + ' moving' : '';
+}
+/* live readout: where each animated control actually sits on this frame */
+function updateModMarks(t) {
+  for (let i = 0; i < MOD_UI.length; i++) {
+    const e = MOD_UI[i], m = S.mods[e.path];
+    if (!m || !m.on || !S.modMaster.on) continue;
+    const v = modulate(e.path, e.get(), t, e.def);
+    const span = e.def.mx - e.def.mn;
+    e.mark.style.setProperty('--mod', clamp((v - e.def.mn) / (span || 1), 0, 1));
+    if (e.liveRef.el) e.liveRef.el.textContent = fmtVal(v, e.def);
+  }
+}
+function buildModPanel(path, def, after) {
+  const m = S.mods[path];
+  const panel = el('div', 'modpanel');
+  const top = el('div', 'mtop');
+  const sel = document.createElement('select');
+  LFO_SHAPES.forEach(sh => {
+    const o = document.createElement('option');
+    o.value = sh.id; o.textContent = sh.n + (sh.smooth ? '' : '  (steps)');
+    sel.appendChild(o);
+  });
+  sel.value = m.shape || 'sine';
+  const live = el('span', 'live', '');
+  live.title = 'the value being rendered on this frame';
+  top.appendChild(sel); top.appendChild(live);
+  panel.appendChild(top);
+
+  const onCh = () => { markDirty(); if (after) after(); };
+  panel.appendChild(mkSlider(MOD_RATE,  () => m.rate,  v => { m.rate = v; buildModList(); }, onCh));
+  panel.appendChild(mkSlider(MOD_DEPTH, () => m.depth, v => { m.depth = v; }, onCh));
+  panel.appendChild(mkSlider(MOD_PHASE, () => m.phase, v => { m.phase = v; }, onCh));
+
+  const seedRow = el('div', 'seedrow');
+  const seedTxt = el('span', '', 'Wander seed ' + m.seed);
+  const roll = el('button', 'btn sm', 'roll');
+  roll.addEventListener('click', () => {
+    m.seed = 1 + ((Math.random() * 9998) | 0);
+    seedTxt.textContent = 'Wander seed ' + m.seed; onCh();
+  });
+  seedRow.appendChild(seedTxt); seedRow.appendChild(roll);
+  panel.appendChild(seedRow);
+
+  const jump = el('div', 'jump',
+    'This shape steps rather than glides. The loop is still exact, but the jump is visible.');
+  panel.appendChild(jump);
+
+  const syncShape = () => {
+    const sh = LFO_BY_ID[m.shape] || LFO_SHAPES[0];
+    seedRow.style.display = sh.seeded ? '' : 'none';
+    jump.style.display = sh.smooth ? 'none' : '';
+  };
+  sel.addEventListener('change', () => { m.shape = sel.value; syncShape(); onCh(); buildModList(); });
+  syncShape();
+  return { node: panel, live };
+}
+function buildModList() {
+  const host = $('#modList'); if (!host) return;
+  host.innerHTML = '';
+  const keys = Object.keys(S.mods).sort();
+  if (!keys.length) {
+    host.appendChild(el('div', 'note', 'Nothing is animated yet. Press the wave button on any slider.'));
+    updateModCount(); return;
+  }
+  keys.forEach(k => {
+    const m = S.mods[k];
+    const row = el('div', 'modrow' + (m.on ? '' : ' off'));
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = !!m.on;
+    cb.addEventListener('change', () => {
+      m.on = cb.checked; row.classList.toggle('off', !m.on);
+      markDirty(); refreshModButtons(); updateModCount(); pushUrlSoon();
+    });
+    row.appendChild(cb);
+    row.appendChild(el('span', 'nm', pathLabel(k)));
+    const sh = LFO_BY_ID[m.shape] || { n: m.shape || '?' };
+    row.appendChild(el('span', 'sh', String(sh.n).split(' ')[0].toLowerCase() + ' x' + Math.round(m.rate)));
+    const x = el('button', 'x', '\u00d7');
+    x.title = 'stop animating this control';
+    x.addEventListener('click', () => {
+      delete S.mods[k];
+      buildModList(); refreshModButtons(); updateModCount(); markDirty(); pushUrlSoon();
+    });
+    row.appendChild(x);
+    host.appendChild(row);
+  });
+  updateModCount();
+}
+
+function mkSlider(def, get, set, after, path) {
   const wrap = el('div', 'ctl' + (def.int ? ' isint' : ''));
   const top = el('div', 'top');
-  const nm = el('span', 'name', def.n);
+  top.appendChild(el('span', 'name', def.n));
+  const canMod = !!path && !def.noMod;
+  let modBtn = null;
+  if (canMod) {
+    modBtn = el('button', 'modbtn');
+    modBtn.innerHTML = '&#8767;';
+    modBtn.title = 'Animate this control across the loop';
+    top.appendChild(modBtn);
+  }
   const val = el('span', 'val' + (def.int ? ' int' : ''));
-  top.appendChild(nm); top.appendChild(val);
+  top.appendChild(val);
+  const track = el('div', 'trackwrap');
   const inp = document.createElement('input');
   inp.type = 'range'; inp.min = def.mn; inp.max = def.mx; inp.step = def.st;
-  wrap.appendChild(top); wrap.appendChild(inp);
+  const mark = el('i', 'modmark');
+  track.appendChild(inp); track.appendChild(mark);
+  wrap.appendChild(top); wrap.appendChild(track);
+
   const show = v => {
-    val.textContent = def.int ? String(Math.round(v)) :
-      (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(3));
+    val.textContent = fmtVal(v, def);
     const pct = (v - def.mn) / (def.mx - def.mn) * 100;
     inp.style.setProperty('--pct', clamp(pct, 0, 100) + '%');
   };
-  const sync = () => { const v = get(); inp.value = v; show(v); };
+  const sync0 = () => { const v = get(); inp.value = v; show(v); };
   inp.addEventListener('input', () => {
     let v = parseFloat(inp.value);
     if (def.int) v = Math.round(v);
     set(v); show(v); markDirty(); if (after) after();
   });
-  // double-click the readout to reset
-  val.addEventListener('dblclick', () => { set(def.d); sync(); markDirty(); if (after) after(); });
+  val.addEventListener('dblclick', () => { set(def.d); sync0(); markDirty(); if (after) after(); });
   val.title = 'double-click to reset';
-  wrap._sync = sync;
-  sync();
+
+  let refresh = null;
+  if (canMod) {
+    const liveRef = { el: null };
+    let panel = null;
+    refresh = () => {
+      const m = S.mods[path];
+      modBtn.classList.toggle('on', !!(m && m.on));
+      wrap.classList.toggle('modon', !!(m && m.on));
+      if (m && !panel) {
+        const built = buildModPanel(path, def, after);
+        panel = built.node; liveRef.el = built.live;
+        wrap.appendChild(panel);
+      } else if (!m && panel) {
+        panel.remove(); panel = null; liveRef.el = null;
+      }
+    };
+    modBtn.addEventListener('click', () => {
+      if (S.mods[path]) delete S.mods[path];
+      else S.mods[path] = defaultMod();
+      refresh(); markDirty(); buildModList(); updateModCount(); if (after) after();
+    });
+    wrap._modRefresh = refresh;
+    MOD_UI.push({ path, def, wrap, mark, get, liveRef });
+    refresh();
+  }
+  wrap._sync = () => { sync0(); if (refresh) refresh(); };
+  sync0();
   return wrap;
 }
 
-function buildCtlList(host, defs, store, after) {
+function buildCtlList(host, defs, store, after, prefix) {
   host.innerHTML = '';
+  pruneModUi();
   const syncs = [];
   defs.forEach(d => {
-    const s = mkSlider(d, () => store[d.k], v => { store[d.k] = v; }, after);
+    const s = mkSlider(d, () => store[d.k], v => { store[d.k] = v; }, after, prefix ? prefix + d.k : null);
     host.appendChild(s); syncs.push(s._sync);
   });
   host._syncAll = () => syncs.forEach(f => f());
@@ -76,6 +239,8 @@ function scheduleThumbs() { clearTimeout(thumbTimer); thumbTimer = setTimeout(re
 function renderThumbs() {
   if (!GL_OK || busy) return;
   const keepGen = S.gen, keepFrame = S.frame, keepPost = S.post, keepBg = S.out.bg;
+  const keepMod = S.modMaster.on;
+  S.modMaster.on = false;          // a gallery of twitching thumbnails helps nobody
   S.frame = defObj(FRAME_DEF);
   S.post = defObj(POST_DEF);
   S.post.vig = 0; S.post.grain = 0; S.post.chroma = 0;
@@ -94,6 +259,7 @@ function renderThumbs() {
     ctx.putImageData(img, 0, 0);
   }
   S.gen = keepGen; S.frame = keepFrame; S.post = keepPost; S.out.bg = keepBg;
+  S.modMaster.on = keepMod;
   markDirty();
 }
 
@@ -101,7 +267,7 @@ function renderThumbs() {
 function buildParams() {
   const g = GEN_BY_ID[S.gen];
   const host = $('#params');
-  buildCtlList(host, g.params, S.params[g.id], pushUrlSoon);
+  buildCtlList(host, g.params, S.params[g.id], pushUrlSoon, 'g:' + g.id + ':');
   if (g.flame) {
     const note = el('div', 'note');
     note.innerHTML = '<b>Variation A/B</b> pick which flame variations the transforms use. ' +
@@ -244,8 +410,14 @@ function snapshot() {
   // only the active pattern's parameters travel: carrying all eighteen would
   // make the shareable link four times longer for nothing
   const p = {}; p[S.gen] = S.params[S.gen];
+  // likewise drop modulators belonging to patterns that are not on screen
+  const mods = {};
+  for (const k in S.mods) {
+    if (k.indexOf('g:') === 0 && k.indexOf('g:' + S.gen + ':') !== 0) continue;
+    mods[k] = S.mods[k];
+  }
   return {
-    v: 1, gen: S.gen, seed: S.seed,
+    v: 1, gen: S.gen, seed: S.seed, mods, modMaster: S.modMaster,
     params: p, frame: S.frame, post: S.post, palX: S.palX, alpha: S.alpha,
     pal: { stops: S.pal.stops, space: S.pal.space, preset: S.pal.preset },
     out: S.out, gif: S.gif, vid: { q: S.vid.q }
@@ -268,6 +440,8 @@ function applySnapshot(o) {
   if (o.out) Object.assign(S.out, o.out);
   if (o.gif) Object.assign(S.gif, o.gif);
   if (o.vid && o.vid.q) S.vid.q = o.vid.q;
+  S.mods = o.mods ? JSON.parse(JSON.stringify(o.mods)) : {};
+  if (o.modMaster) Object.assign(S.modMaster, o.modMaster);
   refreshAllUI();
 }
 function refreshAllUI() {
@@ -288,6 +462,9 @@ function refreshAllUI() {
   $('#gifSharpPal').checked = S.gif.kmeans;
   $('#vidQ').value = S.vid.q;
   $('#alphaCtls').style.display = S.out.bg === 'alpha' ? '' : 'none';
+  const mm = $('#modMaster'); if (mm) mm.checked = S.modMaster.on;
+  const md = $('#modDepthCtl'); if (md && md._syncAll) md._syncAll();
+  buildModList(); refreshModButtons();
   syncSizePreset(); updateEstimate(); layout(); markDirty();
 }
 let urlTimer = 0;
@@ -394,6 +571,36 @@ function randomizePost(rnd) {
   S.palX.cycles = rnd() < 0.5 ? 0 : (rnd() < 0.5 ? 1 : -1) * (1 + ((rnd() * 2) | 0));
   S.palX.offset = rnd();
 }
+/* Roll a small number of controls into motion. Depths stay modest and
+   rates stay low: the point is a look that breathes, not one that thrashes. */
+function randomizeMods(rnd, replace) {
+  if (replace) S.mods = {};
+  const g = GEN_BY_ID[S.gen];
+  const pool = [];
+  g.params.forEach(d => { if (!d.noMod) pool.push(['g:' + g.id + ':' + d.k, d]); });
+  ['zoom', 'rot', 'mrot', 'panx', 'pany'].forEach(k => {
+    const d = FRAME_DEF.find(x => x.k === k); if (d) pool.push(['f:' + k, d]);
+  });
+  ['bloom', 'exposure', 'sat', 'contrast', 'chroma', 'vig'].forEach(k => {
+    const d = POST_DEF.find(x => x.k === k); if (d) pool.push(['p:' + k, d]);
+  });
+  const po = PAL_EXTRA_DEF.find(x => x.k === 'offset'); if (po) pool.push(['x:offset', po]);
+  const shapes = ['sine', 'sine', 'tri', 'noise', 'noise', 'drift', 'swell'];
+  const n = 1 + Math.floor(rnd() * 3);
+  for (let i = 0; i < n && pool.length; i++) {
+    const j = (rnd() * pool.length) | 0;
+    const pick = pool.splice(j, 1)[0];
+    S.mods[pick[0]] = {
+      on: true,
+      shape: shapes[(rnd() * shapes.length) | 0],
+      rate: 1 + ((rnd() * 3) | 0),
+      depth: 0.05 + rnd() * 0.3,
+      phase: rnd(),
+      seed: 1 + ((rnd() * 9998) | 0)
+    };
+  }
+}
+
 function doRandomize(full) {
   S.seed = randSeedWord();
   const rnd = mulberry32(hashStr(S.seed));
@@ -409,6 +616,9 @@ function doRandomize(full) {
     }
     randomizeFrame(rnd);
     randomizePost(rnd);
+    randomizeMods(rnd, true);
+  } else {
+    S.mods = {};
   }
   randomizeParams(rnd, S.gen);
   balanceExposure();
@@ -466,6 +676,7 @@ function tick(ts) {
   if (!ok) {
     showOverlay('Shader problem', lastRenderErr + '\nOpen the console for the full compile log.');
   }
+  updateModMarks(tNow);
   const fi = Math.floor(tNow * N + 1e-6) % N;
   $('#tStat').innerHTML = 'frame <b>' + fi + '</b>/' + N;
   const scr = $('#scrub');

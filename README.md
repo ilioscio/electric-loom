@@ -43,15 +43,71 @@ about if you extend it:
   is exactly the case a tile index hits at the seam. `imod()` in the shader prelude works around
   it. This was a real, visible bug, not a theoretical one.
 
-**Verify loop** renders `t=0` and `t=1` at output resolution and diffs them pixel by pixel. Across
+**Verify loop** makes two measurements, because either one alone can mislead.
+
+The strict probe asks whether `render(t=1)` is the same pixels as `render(t=0)`. That is the exact
+statement of the loop rule, and it is what caught the grain, rotation and driver-modulo bugs. But
+it is over-sensitive at extreme settings: `TA = 2*PI*t` reaches the shader as a float32, so at
+`t=1` a term like `sin(ang * TAU * stripes)` can carry a phase error of a couple of thousandths of
+a radian once `ang` has grown large. On a very fine pattern that is a sub-pixel shift of the whole
+field, which the probe reports as a large per-pixel number and an eye would never see.
+
+So the headline is **seam continuity**: the size of the step across the wrap against the size of an
+ordinary step between neighbouring frames. Near 1 means the join is just another frame boundary.
+Modulators are certified separately and directly — an RMS pixel comparison saturates on fast
+content and will cheerfully call a modulator that leaps most of its range "seamless", so each one
+is checked for continuity across its own wrap instead of being inferred from pixels.
+
+Across
 all 18 patterns, three framing regimes (including 12-fold kaleidoscope with mirror spin, palette
-cycling, grain, bloom and chromatic aberration) and three frame rates, the worst seam difference
-measured is **1/255** — one least significant bit, below the resolution GIF quantisation works at.
+cycling, grain, bloom and chromatic aberration) and three frame rates, the strict probe measures a
+worst difference of **1/255** — one least significant bit, below the resolution GIF quantisation
+works at.
 
 The GIF frame delays are integer centiseconds distributed so they **sum to exactly** the requested
 duration, rather than each being rounded independently and letting the loop drift.
 
 ---
+
+## Animating the controls
+
+Any slider can be put in motion over the loop: press the wave button beside it and an LFO panel
+drops in underneath. Shapes are **Sine**, **Triangle**, **Smooth noise** (value noise around a
+closed ring, Catmull-Rom through it), **Harmonic drift** (a 1/f sum over whole harmonics with
+seeded phases), **Swell** (a single eased rise and fall), **Pulse** and **Ramp**. Each has a rate
+in whole cycles per loop, a depth as a fraction of that control's range, a phase, and a seed for
+the two noise shapes. The marker on the slider track shows where the control actually is on the
+frame being rendered.
+
+**This cannot break the loop, and that is a property of the arithmetic rather than a promise.**
+`render(t, p)` is already exactly periodic in `t` for any fixed `p`. Every modulator is exactly
+periodic in `t`. So `render(1, p(1)) = render(1, p(0)) = render(0, p(0))`, and the loop closes for
+free. The modulated value is rounded to float32 before use — the width it is uploaded at anyway —
+so the two ends agree bit for bit rather than merely to within a rounding error.
+
+Three things had to be got right, and each one was caught by a test rather than by reasoning:
+
+- **Wrap `t` before adding the phase, not after.** `wrap1(1 + phase)` and `wrap1(0 + phase)` differ
+  by one ULP of a double. That sounds harmless until `Math.round` turns it into a whole step on an
+  integer control — a modulated "Petals" jumping from 8 to 9 between the last frame and the first.
+  Seam differences of up to 127/255 came from this. `wrap1(1)` is exactly `0`, so wrapping first
+  makes the two ends bit-identical.
+- **Stepping shapes must not step on the seam.** Unshifted, a ramp resets and a pulse flips at
+  exactly `x = 0`, which puts the one hard edge in the entire animation on the join. It reads as a
+  broken loop rather than as a deliberate strobe. Both are offset into the body of the cycle; that
+  took one measured case from a seam 21x an ordinary frame step down to 0.94x.
+- **The continuity test has to look in the right place.** A rate that is not a whole number does
+  *not* break the seam — `x = wrap1(t + phase)` advances straight through it for any rate. The jump
+  lands at `t = 1 - phase`, in the middle of the loop. Just as visible, just as wrong, and nowhere
+  near where you would look for it.
+
+Measured across all 7 shapes and all 18 patterns, with roughly a dozen controls animated at once:
+worst seam step **1.16x an ordinary step between neighbouring frames**. 21,000 randomised
+modulators all return continuous; deliberately malformed ones are caught.
+
+**Roll motion** sets one to three controls moving at modest depths, and **Randomize** now includes
+motion, so a single press gives a look that breathes rather than one that merely spins. **M**
+toggles all modulation, which is the quickest way to A/B it.
 
 ## The patterns
 
@@ -126,7 +182,7 @@ faster.
 ## Keys
 
 `space` play/pause · `R` randomize · `P` reroll params · `←`/`→` step a frame · `S` seam check ·
-`V` verify loop · `G` render GIF · `W` render WebM
+`V` verify loop · `M` modulation on/off · `G` render GIF · `W` render WebM
 
 Double-click any slider readout to reset that control. The address bar carries the whole look, so
 **Copy link** shares a reproducible result; looks can also be saved to local storage and exported

@@ -189,6 +189,10 @@ const FLAME_VARS = ['linear','sinusoidal','spherical','swirl','horseshoe','polar
   'heart','disc','spiral','hyperbolic','diamond','ex','julia','bent','fisheye','eyefish','bubble',
   'cylinder','tangent','popcorn','exponential','power','cosine','rings'];
 
+/* Quality is a pure cost knob - animating it would just make the density,
+   and therefore the brightness, step about. Everything else is fair game. */
+FLAME_DEF.params.find(p => p.k === 'q').noMod = true;
+
 GENS.push(FLAME_DEF);
 
 /* =====================================================================

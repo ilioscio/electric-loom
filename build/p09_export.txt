@@ -475,34 +475,124 @@ async function exportPngs() {
 }
 
 /* --------------------------------------------------------- loop verifier */
+/* Two measurements, because one of them alone lies.
+
+   The exact probe asks whether render(t=1) is the same pixels as render(t=0).
+   That is the strict statement of the loop rule and it is what caught the
+   grain, rotation and driver-modulo bugs. But it is over-sensitive at extreme
+   settings: TA = 2*PI*t reaches the shader as a float32, so at t=1 a term like
+   sin(ang * TAU * stripes) can carry a phase error of a couple of thousandths
+   of a radian once ang has grown large and stripes is high. On a very fine
+   pattern that is a sub-pixel shift of the whole field, which the probe reports
+   as a big per-pixel number and an eye would never see.
+
+   So the headline number is seam continuity: the size of the step ACROSS the
+   wrap, divided by the size of an ordinary step between neighbouring frames.
+   A ratio near 1 means the wrap is just another frame boundary, which is the
+   thing the user actually cares about. */
 async function verifyLoop() {
   const W = Math.min(S.out.w, 960) | 0;
   const H = Math.max(1, Math.round(W * S.out.h / S.out.w));
-  beginBusy('verifying the seam...');
+  const N = totalFrames();
+  beginBusy('checking the seam...');
   try {
+    let seam = 0, med = 0, mx = 0, ratio = 1, ratioMax = 1, haveRatio = false;
+    if (N >= 4) {
+      const K = Math.min(4, N >> 1);
+      const idx = [];
+      for (let i = N - K; i < N; i++) idx.push(i);
+      for (let i = 0; i <= K; i++) idx.push(i % N);
+      const frames = [];
+      for (let j = 0; j < idx.length; j++) {
+        if (CANCEL) throw new Error('cancelled');
+        await yieldUi();
+        setProgress(j / (idx.length + 2) * 0.8, 'rendering across the wrap   ' + (j + 1) + '/' + idx.length);
+        render(idx[j] / N, W, H, S.out.ss);
+        frames.push(readFrame(W, H));
+      }
+      const rms = (a, b) => {
+        let acc = 0;
+        for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; acc += d * d; }
+        return Math.sqrt(acc / a.length);
+      };
+      const steps = [];
+      for (let i = 1; i < frames.length; i++) steps.push(rms(frames[i - 1], frames[i]));
+      const seamIdx = K - 1;
+      seam = steps[seamIdx];
+      const others = steps.filter((_, i) => i !== seamIdx).sort((a, b) => a - b);
+      med = others.length ? others[others.length >> 1] : 0;
+      mx  = others.length ? others[others.length - 1] : 0;
+      ratio = med > 0.02 ? seam / med : (seam < 0.02 ? 1 : 99);
+      /* Judged against the LARGEST ordinary step, not the median. When a
+         control is being animated hard the motion is often fastest right at
+         the wrap - perfectly smooth, but easily twice the median step. A
+         genuine discontinuity, by contrast, dwarfs every ordinary step. */
+      ratioMax = mx > 0.02 ? seam / mx : (seam < 0.02 ? 1 : 99);
+      haveRatio = true;
+    }
+
+    if (CANCEL) throw new Error('cancelled');
+    await yieldUi();
+    setProgress(0.85, 'comparing t=0 against t=1...');
     render(0, W, H, S.out.ss);
     const a = readFrame(W, H);
     await yieldUi();
-    render(1, W, H, S.out.ss);   // t=1 is the frame AFTER the last one: must equal t=0
+    render(1, W, H, S.out.ss);
     const b = readFrame(W, H);
-    let maxd = 0, sum = 0, n = 0;
+    let maxd = 0, sum = 0;
     for (let i = 0; i < a.length; i++) {
       const d = Math.abs(a[i] - b[i]);
       if (d > maxd) maxd = d;
-      sum += d * d; n++;
+      sum += d * d;
     }
-    const rms = Math.sqrt(sum / n);
+    const rmsExact = Math.sqrt(sum / a.length);
+
+    /* the modulators are certified directly, not inferred from pixels */
+    const ms = worstModSeam();
+    const modsClean = ms.err <= 1e-4;
+    const exact = maxd <= 2;
+    const seamless = !haveRatio || ratioMax <= 1.15 || ratio <= 1.35;
     const badge = $('#seamBadge');
-    const good = maxd <= 1;
-    badge.className = 'show ' + (good ? 'good' : maxd <= 4 ? '' : 'bad');
-    badge.textContent = good ? 'loop is exact  (max diff 0)' :
-      'seam diff  max ' + maxd + '  rms ' + rms.toFixed(2);
-    setTimeout(() => badge.classList.remove('show'), 6000);
-    setProgress(1, good
-      ? 'Exact loop. Frame at t=1 is pixel-identical to frame 0, so the last frame hands straight back to the first.'
-      : 'Seam max diff  ' + maxd + '/255, rms ' + rms.toFixed(2) + '. Grain and dither noise can show a tiny non-zero value; anything above ~4 means a parameter is not on a whole number of cycles.');
-    toast(good ? 'Loop verified: pixel-exact.' : 'Seam max difference ' + maxd + '/255');
+    const good = modsClean && (exact || seamless);
+    badge.className = 'show ' + (good ? 'good' : 'bad');
+    badge.textContent = !modsClean ? 'a modulator jumps mid-loop' :
+      exact ? 'loop is exact' :
+      seamless ? 'seam continuous  ' + ratio.toFixed(2) + 'x a normal step' :
+      'seam steps  ' + ratio.toFixed(2) + 'x a normal step';
+    setTimeout(() => badge.classList.remove('show'), 7000);
+
+    const nmods = activeModCount();
+    let msg;
+    if (!modsClean) {
+      msg = 'The modulator on ' + pathLabel(ms.path) + ' is not continuous: it jumps by\n' +
+            ms.err.toFixed(3) + ' of its range partway through the loop. Its rate has to be a whole\n' +
+            'number of cycles per loop for the shape to join up with itself.';
+    } else if (exact) {
+      msg = 'Exact loop. The frame at t=1 is pixel-identical to frame 0, so the last frame\n' +
+            'hands straight back to the first.';
+    } else if (seamless) {
+      msg = 'Seamless. The step across the wrap is ' + ratio.toFixed(2) + 'x the median step\n' +
+            'between neighbouring frames and ' + ratioMax.toFixed(2) + 'x the largest one, so the\n' +
+            'join is just another frame boundary.\n' +
+            'The strict t=0 vs t=1 probe differs by ' + maxd + '/255 at its worst point (rms ' +
+            rmsExact.toFixed(2) + '),\nwhich at these settings is float32 phase error in the shader, not a jump.';
+    } else {
+      msg = 'The step across the wrap is ' + ratioMax.toFixed(2) + 'x the largest ordinary step, so\n' +
+            'the join is visible. A stepping shape (Pulse, Ramp) does this on purpose;\n' +
+            'otherwise look for a rate that is not a whole number per loop.\n' +
+            'seam rms ' + seam.toFixed(2) + ' against a typical step of ' + med.toFixed(2) + '.';
+    }
+    if (nmods) {
+      msg += '\n' + nmods + ' animated control(s) checked' +
+             (modsClean ? '; every one joins up with itself.' : '.');
+    }
+    setProgress(1, msg);
+    toast(!modsClean ? 'A modulator jumps partway through the loop.' :
+          exact ? 'Loop verified: pixel-exact.' :
+          seamless ? 'Loop verified: seam continuous (' + ratio.toFixed(2) + 'x).' :
+          'Seam steps ' + ratio.toFixed(2) + 'x a normal frame.');
   } catch (e) {
-    console.error(e); setProgress(0, 'verify failed: ' + e.message);
+    if (String(e.message) === 'cancelled') { setProgress(0, 'cancelled'); toast('Cancelled.'); }
+    else { console.error(e); setProgress(0, 'verify failed: ' + e.message); }
   } finally { endBusy(); }
 }

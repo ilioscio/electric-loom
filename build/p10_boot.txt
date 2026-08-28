@@ -29,9 +29,13 @@ function showHelp() {
     'Every pattern is built so that time only enters as an angle, and every rate is a whole\n' +
     'number of turns per loop. Frame N is therefore the same pixels as frame 0, and the\n' +
     '<b>Verify loop</b> button proves it by rendering t=0 and t=1 and diffing them.\n\n' +
+    'Any slider can be animated too: press the wave button beside it. The shapes are\n' +
+    'whole cycles per loop and land back on their starting value, so a moving control\n' +
+    'cannot break the seam. Verify loop still proves it.\n\n' +
     '<b>space</b> play / pause &nbsp; <b>R</b> randomize &nbsp; <b>P</b> reroll params\n' +
     '<b>left / right</b> step one frame &nbsp; <b>S</b> seam check &nbsp; <b>V</b> verify\n' +
-    '<b>G</b> render GIF &nbsp; <b>W</b> render WebM &nbsp; <b>esc</b> close this\n\n' +
+    '<b>M</b> modulation on / off &nbsp; <b>G</b> render GIF &nbsp; <b>W</b> render WebM\n' +
+    '<b>esc</b> close this\n\n' +
     'Double-click any slider readout to reset that one control.\n' +
     'The link in the address bar carries the whole look; Copy link shares it.\n\n' +
     'Nothing here talks to a network. Open index.html straight off disk, or run\n' +
@@ -46,7 +50,7 @@ function showHelp() {
 function wire() {
   /* framing controls, with the seed on top */
   const fc = $('#frameCtls');
-  buildCtlList(fc, FRAME_DEF, S.frame, pushUrlSoon);
+  buildCtlList(fc, FRAME_DEF, S.frame, pushUrlSoon, 'f:');
   const seedWrap = el('div', 'ctl');
   const st = el('div', 'top'); st.appendChild(el('span', 'name', 'Seed'));
   seedWrap.appendChild(st);
@@ -60,10 +64,25 @@ function wire() {
   seedWrap.appendChild(el('div', 'hint', 'Only the patterns with scattered elements use it: metaballs, voronoi, truchet, hex, ripples, flame.'));
   fc.insertBefore(seedWrap, fc.firstChild);
 
-  buildCtlList($('#postCtls'), POST_DEF, S.post, pushUrlSoon);
-  buildCtlList($('#palExtra'), PAL_EXTRA_DEF, S.palX, pushUrlSoon);
-  buildCtlList($('#alphaCtls'), ALPHA_DEF, S.alpha, pushUrlSoon);
+  buildCtlList($('#postCtls'), POST_DEF, S.post, pushUrlSoon, 'p:');
+  buildCtlList($('#palExtra'), PAL_EXTRA_DEF, S.palX, pushUrlSoon, 'x:');
+  buildCtlList($('#alphaCtls'), ALPHA_DEF, S.alpha, pushUrlSoon, 'a:');
+  buildCtlList($('#modDepthCtl'), MOD_MASTER_DEF, S.modMaster, pushUrlSoon);
   buildCtlList($('#ditherStrCtl'), [P(0, 'strength', 'Dither strength', 0, 1, 0.9, 0.005)], S.gif, () => { updateEstimate(); pushUrlSoon(); });
+
+  $('#modMaster').addEventListener('change', e => {
+    S.modMaster.on = e.target.checked;
+    refreshModButtons(); updateModCount(); markDirty(); pushUrlSoon();
+  });
+  $('#btnModRandom').addEventListener('click', () => {
+    randomizeMods(Math.random, true);
+    refreshModButtons(); buildModList(); markDirty(); pushUrl();
+    toast(activeModCount() + ' control(s) set moving.');
+  });
+  $('#btnModClear').addEventListener('click', () => {
+    S.mods = {};
+    refreshModButtons(); buildModList(); markDirty(); pushUrl();
+  });
 
   $('#palSpace').addEventListener('change', e => { S.pal.space = e.target.value; rebuildLut(); pushUrl(); });
   $('#btnAddStop').addEventListener('click', () => {
@@ -180,6 +199,12 @@ function wire() {
       case 'r': case 'R': if (!busy) doRandomize(true); break;
       case 'p': case 'P': if (!busy) doRandomize(false); break;
       case 's': case 'S': toggleSeam(); break;
+      case 'm': case 'M':
+        S.modMaster.on = !S.modMaster.on;
+        $('#modMaster').checked = S.modMaster.on;
+        refreshModButtons(); updateModCount(); markDirty();
+        toast('Modulation ' + (S.modMaster.on ? 'on' : 'off'));
+        break;
       case 'v': case 'V': if (!busy) verifyLoop(); break;
       case 'g': case 'G': if (!busy) exportGif(); break;
       case 'w': case 'W': if (!busy) exportWebm(); break;
@@ -225,6 +250,7 @@ function toggleSeam() {
   uploadPalette();
   drawPalBar();
   buildParams();
+  buildModList();
   buildPresetList();
   $('#genTag').textContent = GEN_BY_ID[S.gen].name;
 

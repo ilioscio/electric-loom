@@ -58,6 +58,29 @@
       <div class="body" id="postCtls"></div>
     </div>
 
+    <div class="sec closed" data-sec="mod">
+      <div class="head">Motion <span class="tag" id="modCount"></span><span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="row">
+          <input type="checkbox" id="modMaster" checked>
+          <label class="lbl" for="modMaster" style="flex:1">Modulation active</label>
+        </div>
+        <div id="modDepthCtl"></div>
+        <div id="modList" style="margin-top:8px"></div>
+        <div class="btngrid c2" style="margin-top:7px">
+          <button class="btn sm" id="btnModRandom">Roll motion</button>
+          <button class="btn sm danger" id="btnModClear">Clear all</button>
+        </div>
+        <div class="note">
+          Press the <b>wave button</b> next to any slider to animate it over the loop. Every shape
+          has a whole number of cycles per loop and lands back on its starting value, so a moving
+          control cannot break the seam &mdash; <b>Verify loop</b> still proves it.
+          <b>Pulse</b> and <b>Ramp</b> jump partway round; the loop is still exact, but you will see
+          the step.
+        </div>
+      </div>
+    </div>
+
     <div class="sec closed" data-sec="presets">
       <div class="head">Saved looks<span class="chev">&#9662;</span></div>
       <div class="body">

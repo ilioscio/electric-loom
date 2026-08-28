@@ -58,6 +58,74 @@ const S = {
 };
 GENS.forEach(g => S.params[g.id] = genDefaults(g));
 
+/* =====================================================================
+   MODULATION
+   ---------------------------------------------------------------------
+   Any control can be handed an LFO. A modulator is stored against a
+   stable path, and every read of a control in the render pass goes
+   through modulate() instead of touching the store directly.
+
+   Why this cannot break the loop: render(t, p) is already exactly
+   periodic in t for any fixed p, and every LFO is exactly periodic in t,
+   so render(1, p(1)) = render(1, p(0)) = render(0, p(0)). The one thing
+   that has to be watched is precision - wrap1(1 + phase) and
+   wrap1(0 + phase) can differ in the last bit of a double - so the
+   result is rounded to float32 here, which is the width it is uploaded
+   at anyway. The two ends of the loop then agree bit for bit.
+
+   Paths:  g:<generator>:<key>   f:<key> framing   p:<key> grade
+           x:<key> palette       a:<key> alpha
+   ===================================================================== */
+S.mods = {};
+S.modMaster = { on: true, depth: 1 };
+
+function modulate(path, base, t, def) {
+  const m = S.mods[path];
+  if (!m || !m.on || !S.modMaster.on || !m.depth) return base;
+  const range = def ? (def.mx - def.mn) : 1;
+  let v = base + lfoValue(m, t) * m.depth * S.modMaster.depth * range;
+  if (def) v = clamp(v, def.mn, def.mx);
+  v = Math.fround(v);
+  if (def && def.int) v = Math.round(v);
+  return v;
+}
+function resolveGroup(prefix, defs, store, t) {
+  const o = {};
+  for (let i = 0; i < defs.length; i++) {
+    const d = defs[i];
+    o[d.k] = modulate(prefix + d.k, store[d.k], t, d);
+  }
+  return o;
+}
+const resolvedFrame = t => resolveGroup('f:', FRAME_DEF, S.frame, t);
+const resolvedPost  = t => resolveGroup('p:', POST_DEF,  S.post,  t);
+const resolvedPalX  = t => resolveGroup('x:', PAL_EXTRA_DEF, S.palX, t);
+const resolvedAlpha = t => resolveGroup('a:', ALPHA_DEF, S.alpha, t);
+function resolvedParams(g, t) {
+  const pre = 'g:' + g.id + ':', store = S.params[g.id], o = {};
+  for (let i = 0; i < g.params.length; i++) {
+    const d = g.params[i];
+    o[d.k] = modulate(pre + d.k, store[d.k], t, d);
+  }
+  return o;
+}
+function activeModCount() {
+  let n = 0;
+  for (const k in S.mods) if (S.mods[k] && S.mods[k].on) n++;
+  return n;
+}
+/* worst offender among the live modulators, and how badly it misses */
+function worstModSeam() {
+  let worst = 0, where = '';
+  for (const k in S.mods) {
+    const m = S.mods[k];
+    if (!m || !m.on) continue;
+    const e = modSeamError(m);
+    if (e > worst) { worst = e; where = k; }
+  }
+  return { err: worst, path: where };
+}
+
 let LUT = buildLut(S.pal.stops, S.pal.space);
 const totalFrames = () => Math.max(1, Math.round(S.out.dur * S.out.fps));
 
@@ -181,17 +249,20 @@ function drawQuad() { gl.drawArrays(gl.TRIANGLES, 0, 3); }
    Spin counts are whole turns per loop, so only the fractional turn matters.
    Keeping angles inside one turn is mathematically identical and stops the
    mantissa draining as the spin count climbs, which is what used to make
-   hard-edged patterns twitch at the seam. */
-const wrap1 = x => x - Math.floor(x);
+   hard-edged patterns twitch at the seam. (wrap1 lives up in the LFO
+   section - it is the same idea applied to the same problem.)
+   A modulated spin count still lands on a whole number at t=1, because
+   modulate() rounds integer controls, so wrap1(t*spin) is still 0 at both
+   ends of the loop. */
 function frameUniforms(t) {
-  const F = S.frame;
+  const F = resolvedFrame(t), X = resolvedPalX(t);
   return {
     rot: F.rot + TAU * wrap1(t * F.spin),
     zoom: F.zoom,
     pan: [F.panx, F.pany],
     mirror: F.mirror,
     mirrorRot: F.mrot + TAU * wrap1(t * F.mspin),
-    palRot: S.palX.offset + wrap1(t * S.palX.cycles),
+    palRot: X.offset + wrap1(t * X.cycles),
     seedF: (hashStr(S.seed) % 100000) / 1000
   };
 }
@@ -210,6 +281,7 @@ function render(t, W, H, ss) {
   const rw = Math.max(1, Math.round(W * ss)), rh = Math.max(1, Math.round(H * ss));
   const g = GEN_BY_ID[S.gen];
   const fu = frameUniforms(t);
+  const AL = resolvedAlpha(t);
   const alphaOn = S.out.bg === 'alpha';
   const scene = need('scene', rw, rh);
 
@@ -219,7 +291,7 @@ function render(t, W, H, ss) {
   gl.bindTexture(gl.TEXTURE_2D, palTex);
 
   if (g.flame) {
-    const pv = S.params.flame;
+    const pv = resolvedParams(g, t);
     const acc = need('acc', rw, rh, FLOAT_OK ? COLOR_FMT : gl.RGBA8);
     const pa = makeProg('flame', FLAME_VS, FLAME_FS);
     if (!pa) { lastRenderErr = 'flame shader failed'; return false; }
@@ -269,13 +341,14 @@ function render(t, W, H, ss) {
     u1f(pr, 'uNorm', Math.log(1 + refDens));
     u1f(pr, 'uMirror', fu.mirror); u1f(pr, 'uMirrorRot', fu.mirrorRot);
     u1f(pr, 'uAlphaMode', alphaOn ? 1 : 0);
-    u1f(pr, 'uAlphaGain', S.alpha.alphaGain); u1f(pr, 'uAlphaBias', S.alpha.alphaBias);
+    u1f(pr, 'uAlphaGain', AL.alphaGain); u1f(pr, 'uAlphaBias', AL.alphaBias);
     drawQuad();
   } else {
     const pg = genProg(g);
     if (!pg) { lastRenderErr = 'generator "' + g.name + '" failed to compile'; return false; }
     const arr = new Float32Array(16);
-    g.params.forEach(pd => { arr[pd.i] = S.params[g.id][pd.k]; });
+    const rp = resolvedParams(g, t);
+    g.params.forEach(pd => { arr[pd.i] = rp[pd.k]; });
     gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fb);
     gl.viewport(0, 0, rw, rh);
     gl.useProgram(pg.p);
@@ -289,13 +362,13 @@ function render(t, W, H, ss) {
     u1f(pg, 'uPalRot', fu.palRot);
     u2f(pg, 'uPan', fu.pan[0], fu.pan[1]);
     u1f(pg, 'uAlphaMode', alphaOn ? 1 : 0);
-    u1f(pg, 'uAlphaGain', S.alpha.alphaGain);
-    u1f(pg, 'uAlphaBias', S.alpha.alphaBias);
+    u1f(pg, 'uAlphaGain', AL.alphaGain);
+    u1f(pg, 'uAlphaBias', AL.alphaBias);
     drawQuad();
   }
 
   /* ---- bloom ---- */
-  const P_ = S.post;
+  const P_ = resolvedPost(t);
   const bw = Math.max(2, rw >> 2), bh = Math.max(2, rh >> 2);
   const b0 = need('b0', bw, bh), b1 = need('b1', bw, bh), b2 = need('b2', bw, bh), b3 = need('b3', bw, bh);
   if (P_.bloom > 0.0005) {
