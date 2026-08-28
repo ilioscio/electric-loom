@@ -1,0 +1,226 @@
+/* =====================================================================
+   Electric Loom - a self-contained perfect-loop animation forge.
+   No network, no dependencies. Everything below is written from scratch:
+   the WebGL2 generators, the palette engine, the GIF quantizer + LZW
+   encoder, the WebM (Matroska) muxer, and the ZIP writer.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------- tiny dom */
+const $  = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp  = (a, b, t) => a + (b - a) * t;
+const TAU = Math.PI * 2;
+
+let toastTimer = 0;
+function toast(msg, ms) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms || 2400);
+}
+function fmtBytes(n) {
+  if (!isFinite(n)) return '--';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+  return (n / 1073741824).toFixed(2) + ' GB';
+}
+function fmtTime(s) {
+  if (!isFinite(s) || s < 0) return '--';
+  s = Math.round(s);
+  const m = Math.floor(s / 60);
+  return m > 0 ? m + 'm ' + String(s % 60).padStart(2, '0') + 's' : s + 's';
+}
+
+/* ------------------------------------------------------------ seeded rng */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+function randSeedWord() {
+  const a = ['aur','vex','lum','zar','nyx','pho','sol','tri','quo','hex','vor','ely','kry','oni','pyr','umb','cel','dra','ith','oma'];
+  const b = ['ora','ith','ane','yss','eon','ura','ix','olt','ade','umi','ess','arn','ovo','ymn','ael','usk'];
+  const r = Math.random;
+  return a[(r() * a.length) | 0] + b[(r() * b.length) | 0] + ((r() * 900 + 100) | 0);
+}
+
+/* ---------------------------------------------------------------- colour */
+function hex2rgb(h) {
+  h = h.replace('#', '');
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const n = parseInt(h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgb2hex(r, g, b) {
+  const c = v => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0');
+  return '#' + c(r) + c(g) + c(b);
+}
+/* sRGB <-> linear */
+const s2l = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const l2s = c => { c = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(Math.max(c, 0), 1 / 2.4) - 0.055; return clamp(c * 255, 0, 255); };
+
+/* sRGB (0-255) -> OKLab */
+function rgb2oklab(r, g, b) {
+  const R = s2l(r), G = s2l(g), B = s2l(b);
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+  ];
+}
+function oklab2rgb(L, a, bb) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * bb;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * bb;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * bb;
+  const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+  return [
+    l2s(+4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    l2s(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    l2s(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+  ];
+}
+function rgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0; const l = (mx + mn) / 2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (d !== 0) {
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6; if (h < 0) h += 1;
+  }
+  return [h, s, l];
+}
+function hsl2rgb(h, s, l) {
+  h = ((h % 1) + 1) % 1;
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h * 6) % 2 - 1)), m = l - c / 2;
+  let r = 0, g = 0, b = 0; const seg = Math.floor(h * 6);
+  if (seg === 0) { r = c; g = x; } else if (seg === 1) { r = x; g = c; }
+  else if (seg === 2) { g = c; b = x; } else if (seg === 3) { g = x; b = c; }
+  else if (seg === 4) { r = x; b = c; } else { r = c; b = x; }
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+
+/* ---------------------------------------------------------- palette bank */
+/* Cyclic gradients. The last stop wraps around to the first, which is what
+   lets a palette rotation be an exact loop. */
+const PAL_PRESETS = [
+  { n: 'Electric Sheep', s: ['#05010f', '#3b1b8f', '#00e5ff', '#f7ffb0', '#ff2fb9', '#7a0f6b'] },
+  { n: 'Aurora',         s: ['#020814', '#0b4f6c', '#01baef', '#7ae582', '#d9fff5', '#1b3a6b'] },
+  { n: 'Magma',          s: ['#04010a', '#4a0b3a', '#c81d4e', '#ff8f2b', '#ffe6a3', '#5c1030'] },
+  { n: 'Vaporwave',      s: ['#2b0a3d', '#ff2a6d', '#ffd166', '#05d9e8', '#7a06ff', '#3a0a5c'] },
+  { n: 'Oil Slick',      s: ['#0a0a12', '#1f6f8b', '#99d3ff', '#ffb3f0', '#8a4fff', '#122040'] },
+  { n: 'Infrared',       s: ['#000012', '#22007a', '#c700a8', '#ff5b2e', '#ffe74c', '#7a0044'] },
+  { n: 'Toxic',          s: ['#040a03', '#1d4f1f', '#7fff4d', '#e8ff7a', '#00d4a0', '#0d2b33'] },
+  { n: 'Deep Sea',       s: ['#000308', '#032a4a', '#0a6b8f', '#3fd0d4', '#bff7ff', '#04122b'] },
+  { n: 'Candy Chrome',   s: ['#ffffff', '#ff9ad5', '#8f7bff', '#5ce1ff', '#c6ffe6', '#ffd4a3'] },
+  { n: 'Ember',          s: ['#0b0603', '#3d1002', '#a32a06', '#ff7a18', '#ffd08a', '#2a0a05'] },
+  { n: 'Ultraviolet',    s: ['#06001a', '#3a0ca3', '#7209b7', '#f72585', '#4cc9f0', '#12043a'] },
+  { n: 'Chlorophyll',    s: ['#03120a', '#0b6e4f', '#3ddc84', '#d9ff6b', '#087f8c', '#062822'] },
+  { n: 'Neon Noir',      s: ['#05060a', '#141b3d', '#00fff0', '#ff0080', '#2a0a4a', '#0a1030'] },
+  { n: 'Peach Dream',    s: ['#2a1436', '#a24f7a', '#ff9e7d', '#ffe6b3', '#94d3ff', '#5b2f6b'] },
+  { n: 'Monochrome',     s: ['#000000', '#3a3a3a', '#8a8a8a', '#e8e8e8', '#8a8a8a', '#3a3a3a'] },
+  { n: 'Prism',          s: ['#ff0040', '#ff9500', '#ffee00', '#37ff2a', '#00c8ff', '#8a2be2'] },
+  { n: 'Cyanotype',      s: ['#01060f', '#062c52', '#0f6ba8', '#57b8ff', '#d6f0ff', '#052440'] },
+  { n: 'Rust & Teal',    s: ['#0d0a08', '#3b2117', '#a8471f', '#e8c39e', '#2f8f8f', '#123033'] },
+  { n: 'Bubblegum',      s: ['#3b0a45', '#c31fa8', '#ff6ec7', '#ffd6f5', '#6ee7ff', '#7a1b9c'] },
+  { n: 'Void Gold',      s: ['#000000', '#1a1206', '#6b4a0a', '#d4a017', '#ffe9a8', '#2a1a06'] }
+];
+
+/* Build a 512-entry cyclic LUT from stops, blending in the chosen space. */
+const LUT_N = 512;
+function buildLut(stops, space) {
+  const n = stops.length;
+  const S = stops.slice().sort((a, b) => a.p - b.p);
+  const out = new Uint8Array(LUT_N * 4);
+  if (n === 0) return out;
+  if (n === 1) {
+    const c = hex2rgb(S[0].c);
+    for (let i = 0; i < LUT_N; i++) { out[i * 4] = c[0]; out[i * 4 + 1] = c[1]; out[i * 4 + 2] = c[2]; out[i * 4 + 3] = 255; }
+    return out;
+  }
+  const conv = space === 'oklab' ? (c => rgb2oklab(c[0], c[1], c[2]))
+             : space === 'hsl'   ? (c => rgb2hsl(c[0], c[1], c[2]))
+             : (c => c);
+  const back = space === 'oklab' ? (v => oklab2rgb(v[0], v[1], v[2]))
+             : space === 'hsl'   ? (v => hsl2rgb(v[0], v[1], v[2]))
+             : (v => v);
+  const V = S.map(s => conv(hex2rgb(s.c)));
+  // HSL needs shortest-arc hue unwrapping so a rainbow does not run backwards
+  if (space === 'hsl') {
+    for (let i = 1; i < V.length; i++) {
+      let d = V[i][0] - V[i - 1][0];
+      if (d > 0.5) V[i][0] -= 1; else if (d < -0.5) V[i][0] += 1;
+    }
+  }
+  for (let i = 0; i < LUT_N; i++) {
+    const t = i / LUT_N;
+    let k = 0;
+    while (k < n - 1 && S[k + 1].p <= t) k++;
+    let a, b, va, vb, f;
+    if (t < S[0].p) {           // wrap segment: last -> first
+      a = S[n - 1].p - 1; b = S[0].p; va = V[n - 1]; vb = V[0];
+    } else if (k === n - 1) {
+      a = S[n - 1].p; b = S[0].p + 1; va = V[n - 1]; vb = V[0];
+    } else {
+      a = S[k].p; b = S[k + 1].p; va = V[k]; vb = V[k + 1];
+    }
+    f = b - a < 1e-9 ? 0 : (t - a) / (b - a);
+    f = clamp(f, 0, 1);
+    let vv;
+    if (space === 'hsl') {
+      let h0 = va[0], h1 = vb[0], d = h1 - h0;
+      if (d > 0.5) h1 -= 1; else if (d < -0.5) h1 += 1;
+      vv = [lerp(h0, h1, f), lerp(va[1], vb[1], f), lerp(va[2], vb[2], f)];
+    } else {
+      vv = [lerp(va[0], vb[0], f), lerp(va[1], vb[1], f), lerp(va[2], vb[2], f)];
+    }
+    const rgb = back(vv);
+    out[i * 4]     = clamp(Math.round(rgb[0]), 0, 255);
+    out[i * 4 + 1] = clamp(Math.round(rgb[1]), 0, 255);
+    out[i * 4 + 2] = clamp(Math.round(rgb[2]), 0, 255);
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
+function lutCss(lut) {
+  const parts = [];
+  for (let i = 0; i <= 32; i++) {
+    const j = Math.min(LUT_N - 1, Math.round(i / 32 * LUT_N)) * 4;
+    parts.push(rgb2hex(lut[j], lut[j + 1], lut[j + 2]) + ' ' + (i / 32 * 100).toFixed(1) + '%');
+  }
+  return 'linear-gradient(90deg,' + parts.join(',') + ')';
+}
+function randomPalette(rnd) {
+  rnd = rnd || Math.random;
+  const n = 4 + ((rnd() * 3) | 0);
+  const baseH = rnd();
+  const mode = (rnd() * 3) | 0;                 // 0 analogous 1 triad 2 free
+  const stops = [];
+  for (let i = 0; i < n; i++) {
+    let h;
+    if (mode === 0) h = baseH + (i / n) * 0.30 * (rnd() < 0.5 ? 1 : -1);
+    else if (mode === 1) h = baseH + (i % 3) / 3 + rnd() * 0.06;
+    else h = rnd();
+    const t = i / (n - 1);
+    const s = 0.45 + rnd() * 0.55;
+    const l = clamp(0.06 + Math.pow(t, 0.85) * 0.82 + (rnd() - 0.5) * 0.18, 0.03, 0.97);
+    const c = hsl2rgb(h, s, l);
+    stops.push({ p: i / n, c: rgb2hex(c[0], c[1], c[2]) });
+  }
+  if (rnd() < 0.5) stops[0].c = '#04030a';
+  return stops;
+}

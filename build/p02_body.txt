@@ -1,0 +1,235 @@
+<div id="app">
+<header>
+  <div class="logo"><span class="mark"></span><span>Electric&nbsp;<b>Loom</b></span></div>
+  <span class="sub" id="hdrSub">perfect-loop generator</span>
+  <span class="spacer"></span>
+  <button class="btn sm" id="btnRandom" title="Randomize everything (R)">Randomize</button>
+  <button class="btn sm" id="btnRandParams" title="Randomize parameters only, keep generator + palette">Reroll params</button>
+  <button class="btn sm" id="btnCopyLink" title="Copy a link that reproduces this exact look">Copy link</button>
+  <button class="btn sm" id="btnHelp">?</button>
+</header>
+
+<main>
+  <!-- ================= LEFT ================= -->
+  <div class="col left">
+   <div class="scroll">
+
+    <div class="sec" data-sec="gens">
+      <div class="head">Pattern <span class="tag" id="genTag"></span><span class="chev">&#9662;</span></div>
+      <div class="body"><div class="gens" id="gens"></div></div>
+    </div>
+
+    <div class="sec" data-sec="params">
+      <div class="head">Pattern controls<span class="chev">&#9662;</span></div>
+      <div class="body" id="params"></div>
+    </div>
+
+    <div class="sec" data-sec="frame">
+      <div class="head">Framing &amp; symmetry<span class="chev">&#9662;</span></div>
+      <div class="body" id="frameCtls"></div>
+    </div>
+
+    <div class="sec" data-sec="pal">
+      <div class="head">Palette<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div id="palBar"></div>
+        <div id="stops"></div>
+        <div class="btngrid c3" style="margin-top:7px">
+          <button class="btn sm" id="btnAddStop">+ stop</button>
+          <button class="btn sm" id="btnRevPal">Reverse</button>
+          <button class="btn sm" id="btnRandPal">Random</button>
+        </div>
+        <hr class="sp">
+        <div class="row">
+          <label class="lbl" style="flex:1">Blend space</label>
+          <select id="palSpace" style="width:118px">
+            <option value="oklab">OKLab (smooth)</option>
+            <option value="srgb">sRGB (raw)</option>
+            <option value="hsl">HSL (rainbow)</option>
+          </select>
+        </div>
+        <div id="palExtra"></div>
+        <div class="palPresets" id="palPresets"></div>
+      </div>
+    </div>
+
+    <div class="sec closed" data-sec="post">
+      <div class="head">Grade &amp; glow<span class="chev">&#9662;</span></div>
+      <div class="body" id="postCtls"></div>
+    </div>
+
+    <div class="sec closed" data-sec="presets">
+      <div class="head">Saved looks<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="row">
+          <input type="text" id="presetName" placeholder="name this look">
+          <button class="btn sm" id="btnSavePreset">Save</button>
+        </div>
+        <div id="presetList" style="margin-top:8px"></div>
+        <hr class="sp">
+        <div class="btngrid c2">
+          <button class="btn sm" id="btnExportJson">Export .json</button>
+          <button class="btn sm" id="btnImportJson">Import .json</button>
+        </div>
+        <input type="file" id="fileJson" accept="application/json,.json" style="display:none">
+      </div>
+    </div>
+
+   </div>
+  </div>
+
+  <!-- ================= CENTER ================= -->
+  <div class="col stage">
+    <div class="canvasWrap">
+      <div id="viewFrame">
+        <canvas id="gl"></canvas>
+        <div id="seamBadge"></div>
+        <div id="overlayMsg"><div class="big" id="ovBig"></div><div class="small" id="ovSmall"></div></div>
+      </div>
+    </div>
+    <div class="transport">
+      <button class="tbtn" id="btnPlay" title="Play / pause (Space)">&#9654;</button>
+      <button class="tbtn" id="btnSeam" title="Seam check: flips between the last frame and the first">&#8644;</button>
+      <input type="range" id="scrub" min="0" max="1000" value="0">
+      <span class="tstat" id="tStat">frame <b>0</b>/0</span>
+      <span class="tstat">fps <b class="fps" id="fpsStat">--</b></span>
+      <button class="btn sm" id="btnVerify" title="Render t=0 and t=1 at full output size and compare pixel by pixel">Verify loop</button>
+      <select id="previewQ" style="width:96px" title="Preview render size">
+        <option value="0.5">Preview 50%</option>
+        <option value="0.75">Preview 75%</option>
+        <option value="1" selected>Preview 100%</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ================= RIGHT ================= -->
+  <div class="col right">
+   <div class="scroll">
+
+    <div class="sec" data-sec="out">
+      <div class="head">Output<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="field c1">
+          <div class="f"><span>Size preset</span>
+            <select id="sizePreset"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="f"><span>Width</span><input type="number" id="outW" min="16" max="4096" step="2" value="1280"></div>
+          <div class="f"><span>Height</span><input type="number" id="outH" min="16" max="4096" step="2" value="720"></div>
+        </div>
+        <div class="field">
+          <div class="f"><span>Duration (s)</span><input type="number" id="outDur" min="0.5" max="15" step="0.5" value="4"></div>
+          <div class="f"><span>FPS</span>
+            <select id="outFps">
+              <option>10</option><option>12</option><option>15</option><option>20</option>
+              <option selected>24</option><option>25</option><option>30</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="f"><span>Supersample</span>
+            <select id="outSS"><option value="1">Off (fast)</option><option value="2" selected>2x (smooth)</option></select>
+          </div>
+          <div class="f"><span>Background</span>
+            <select id="bgMode"><option value="opaque" selected>Opaque</option><option value="alpha">Alpha from brightness</option></select>
+          </div>
+        </div>
+        <div id="alphaCtls" style="display:none"></div>
+        <div class="est" id="est"></div>
+      </div>
+    </div>
+
+    <div class="sec" data-sec="gifset">
+      <div class="head">GIF settings<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="field">
+          <div class="f"><span>Colors</span>
+            <select id="gifColors">
+              <option>256</option><option>192</option><option>128</option><option>96</option>
+              <option>64</option><option>48</option><option>32</option><option>16</option><option>8</option>
+            </select>
+          </div>
+          <div class="f"><span>Dither</span>
+            <select id="gifDither">
+              <option value="fs" selected>Floyd&ndash;Steinberg</option>
+              <option value="sierra">Sierra Lite</option>
+              <option value="atkinson">Atkinson</option>
+              <option value="bayer8">Ordered 8x8</option>
+              <option value="bayer4">Ordered 4x4</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+        </div>
+        <div id="ditherStrCtl"></div>
+        <div class="row" style="margin-top:6px">
+          <input type="checkbox" id="gifSharpPal" checked>
+          <label class="lbl" for="gifSharpPal" style="flex:1">Refine palette (k&#8209;means)</label>
+        </div>
+        <div class="note">One global palette is built from frames sampled across the whole loop, so colors never shift or flicker between frames.</div>
+      </div>
+    </div>
+
+    <div class="sec" data-sec="vidset">
+      <div class="head">WebM settings<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="field">
+          <div class="f"><span>Codec</span><select id="vidCodec"></select></div>
+          <div class="f"><span>Quality</span>
+            <select id="vidQ">
+              <option value="0.06">Draft</option>
+              <option value="0.12">Good</option>
+              <option value="0.22" selected>High</option>
+              <option value="0.40">Very high</option>
+              <option value="0.75">Near lossless</option>
+            </select>
+          </div>
+        </div>
+        <div id="vidInfo" class="note"></div>
+      </div>
+    </div>
+
+    <div class="sec" data-sec="export">
+      <div class="head">Export<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="btngrid" style="grid-template-columns:1fr">
+          <button class="btn pri wide" id="btnGif">Render GIF</button>
+        </div>
+        <div class="btngrid c2" style="margin-top:6px">
+          <button class="btn mag" id="btnWebm">Render WebM</button>
+          <button class="btn" id="btnPngs">PNG frames .zip</button>
+        </div>
+        <button class="btn danger wide" id="btnCancel" style="margin-top:6px;display:none">Cancel</button>
+        <div id="prog">
+          <div class="bar"><i id="progBar"></i></div>
+          <div id="progTxt"></div>
+        </div>
+        <div id="outList"></div>
+      </div>
+    </div>
+
+    <div class="sec closed" data-sec="obs">
+      <div class="head">OBS notes<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="note" style="font-size:11px;line-height:1.65">
+          <b>Media Source</b> is the one to use for both GIF and WebM. Tick <b>Loop</b>, untick
+          <b>Restart playback when source becomes active</b> so it never hitches on scene changes,
+          and leave <b>Close file when inactive</b> off.<br><br>
+          <b>WebM beats GIF</b> for a full-screen background: full color, no banding, and roughly
+          10&ndash;40x smaller. Keep the GIF for browser sources, chat overlays and anywhere that
+          only eats images.<br><br>
+          <b>Alpha</b> works properly in the PNG frame sequence. GIF alpha is 1&#8209;bit (hard edges).
+          WebM alpha is not written here, so use PNG frames for a cut-out overlay.<br><br>
+          <b>Sizing:</b> these patterns are all smooth, so a 1280x720 file scaled up to 1080p in OBS
+          looks near identical and encodes several times faster.
+        </div>
+      </div>
+    </div>
+
+   </div>
+  </div>
+</main>
+</div>
+<div id="toast"></div>
+<script>
+"use strict";

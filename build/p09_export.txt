@@ -1,0 +1,508 @@
+/* =====================================================================
+   EXPORT
+   ===================================================================== */
+let CANCEL = false;
+const raf = () => new Promise(r => requestAnimationFrame(r));
+/* Yield through a MessageChannel, not setTimeout or rAF. Browsers pause rAF
+   and clamp timers to one a second in a hidden tab, which would stall a long
+   render the moment you switch away to do something else. Channel messages
+   are not throttled, so an export keeps full speed in the background. */
+const yieldUi = () => new Promise(r => {
+  const ch = new MessageChannel();
+  ch.port1.onmessage = () => { ch.port1.close(); r(); };
+  ch.port2.postMessage(0);
+});
+
+function beginBusy(label) {
+  busy = true; CANCEL = false;
+  $('#prog').classList.add('show');
+  $('#btnCancel').style.display = '';
+  ['#btnGif', '#btnWebm', '#btnPngs', '#btnVerify', '#btnRandom', '#btnRandParams'].forEach(s => $(s).disabled = true);
+  setProgress(0, label);
+}
+function endBusy() {
+  busy = false;
+  $('#btnCancel').style.display = 'none';
+  ['#btnGif', '#btnWebm', '#btnPngs', '#btnVerify', '#btnRandom', '#btnRandParams'].forEach(s => $(s).disabled = false);
+  lastRAF = 0; markDirty();
+}
+function setProgress(frac, text) {
+  $('#progBar').style.width = clamp(frac * 100, 0, 100).toFixed(1) + '%';
+  $('#progTxt').textContent = text;
+}
+function baseName() {
+  return 'loom-' + S.gen + '-' + S.seed + '-' + S.out.w + 'x' + S.out.h + '-' + S.out.fps + 'fps';
+}
+function addOutput(kind, name, blob) {
+  const url = URL.createObjectURL(blob);
+  const item = el('div', 'outItem');
+  item.appendChild(el('span', 'k', kind));
+  const a = document.createElement('a');
+  a.className = 'n'; a.href = url; a.download = name; a.textContent = name;
+  a.style.color = 'var(--acc)'; a.style.textDecoration = 'none';
+  item.appendChild(a);
+  item.appendChild(el('span', 's', fmtBytes(blob.size)));
+  const dl = el('button', 'btn sm', 'Save');
+  dl.addEventListener('click', () => { a.click(); });
+  item.appendChild(dl);
+  $('#outList').prepend(item);
+  a.click();
+}
+
+/* ------------------------------------------------------------------ GIF */
+async function exportGif() {
+  const W = S.out.w | 0, H = S.out.h | 0, N = totalFrames(), ss = S.out.ss;
+  const alphaOn = S.out.bg === 'alpha';
+  const K = Math.min(alphaOn ? 255 : 256, S.gif.colors | 0);
+  beginBusy('preparing...');
+  const t0 = performance.now();
+  try {
+    /* --- pass 1: one global palette sampled across the whole loop --- */
+    const sampleN = Math.min(N, 24);
+    const sc = Math.min(1, 480 / Math.max(W, H));
+    const sw = Math.max(8, Math.round(W * sc)), sh = Math.max(8, Math.round(H * sc));
+    const hist = new Uint32Array(262144);
+    for (let i = 0; i < sampleN; i++) {
+      if (CANCEL) throw new Error('cancelled');
+      const t = (Math.round(i * N / sampleN)) / N;
+      render(t, sw, sh, 1);
+      const px = readFrame(sw, sh);
+      for (let p = 0; p < px.length; p += 4) {
+        if (alphaOn && px[p + 3] < 128) continue;
+        hist[((px[p] >> 2) << 12) | ((px[p + 1] >> 2) << 6) | (px[p + 2] >> 2)]++;
+      }
+      setProgress(i / sampleN * 0.12, 'sampling colours   ' + (i + 1) + '/' + sampleN);
+      await yieldUi();
+    }
+    setProgress(0.12, 'building the ' + K + '-colour palette...');
+    await yieldUi();
+
+    const pool = getWorkers();
+    let pal, cache;
+    if (pool && pool.length) {
+      const r = await wkCall(pool[0], { cmd: 'pal', hist: hist.buffer.slice(0), K, refine: S.gif.kmeans });
+      pal = new Uint8Array(r.pal); cache = new Uint8Array(r.cache);
+    } else {
+      const r = getAlgo().buildPalette(hist, K, S.gif.kmeans);
+      pal = r.pal; cache = r.cache;
+    }
+    if (CANCEL) throw new Error('cancelled');
+
+    /* --- container setup --- */
+    const transIdx = alphaOn ? K : -1;
+    const entries = alphaOn ? K + 1 : K;
+    let tableSize = 2; while (tableSize < entries) tableSize *= 2;
+    if (tableSize < 4) tableSize = 4;
+    const mcs = Math.max(2, Math.round(Math.log2(tableSize)));
+    const delays = delayTable(N, S.out.dur);
+    const head = gifHeader(W, H, pal, tableSize, 0);
+    const alphaCut = 128;
+
+    const parts = new Array(N);
+    const blobChunks = [new Blob([head])];
+    let drained = 0, doneCount = 0, bytesSoFar = head.length;
+    function drain() {
+      const buf = [];
+      while (drained < N && parts[drained]) {
+        buf.push(gifFrameHeader(W, H, delays[drained], transIdx), parts[drained]);
+        parts[drained] = null; drained++;
+      }
+      if (buf.length) blobChunks.push(new Blob(buf));
+    }
+    function onDone() {
+      doneCount++;
+      drain();
+      const frac = 0.15 + doneCount / N * 0.83;
+      const el2 = (performance.now() - t0) / 1000;
+      const eta = doneCount > 2 ? el2 / doneCount * (N - doneCount) : NaN;
+      setProgress(frac, 'encoding   ' + doneCount + '/' + N + ' frames\n' +
+        fmtBytes(bytesSoFar) + ' so far, projected ' + fmtBytes(bytesSoFar / doneCount * N) +
+        '\nelapsed ' + fmtTime(el2) + ', about ' + fmtTime(eta) + ' left');
+    }
+
+    if (pool && pool.length) {
+      await Promise.all(pool.map(w => wkCall(w, { cmd: 'setpal', pal: pal.buffer.slice(0), cache: cache.buffer.slice(0) })));
+      const free = pool.slice(); const waiters = [];
+      const acquire = () => free.length ? Promise.resolve(free.pop()) : new Promise(r => waiters.push(r));
+      const release = w => { const r = waiters.shift(); if (r) r(w); else free.push(w); };
+      const jobs = [];
+      for (let i = 0; i < N; i++) {
+        if (CANCEL) break;
+        const w = await acquire();
+        await yieldUi();
+        if (CANCEL) { release(w); break; }
+        render(i / N, W, H, ss);
+        const px = readFrame(W, H);
+        const idx = i;
+        jobs.push(wkCall(w, {
+          cmd: 'frame', idx, buf: px.buffer, w: W, h: H,
+          dither: S.gif.dither, strength: S.gif.strength,
+          transIdx, alphaCut, mcs
+        }, [px.buffer]).then(r => {
+          const b = new Uint8Array(r.bytes);
+          parts[r.idx] = b; bytesSoFar += b.length + 18;
+          release(w); onDone();
+        }));
+      }
+      await Promise.all(jobs);
+    } else {
+      const A = getAlgo();
+      for (let i = 0; i < N; i++) {
+        if (CANCEL) break;
+        await yieldUi();
+        render(i / N, W, H, ss);
+        const px = readFrame(W, H);
+        const b = A.encodeFrame(px, W, H, pal, cache, S.gif.dither, S.gif.strength, transIdx, alphaCut, mcs);
+        parts[i] = b; bytesSoFar += b.length + 18;
+        onDone();
+      }
+    }
+    if (CANCEL) throw new Error('cancelled');
+    drain();
+    blobChunks.push(new Blob([new Uint8Array([0x3B])]));
+    const blob = new Blob(blobChunks, { type: 'image/gif' });
+    addOutput('GIF', baseName() + '.gif', blob);
+    setProgress(1, 'done  ' + fmtBytes(blob.size) + '  in ' + fmtTime((performance.now() - t0) / 1000) +
+      '\n' + N + ' frames, ' + K + ' colours, delays sum to exactly ' + (S.out.dur).toFixed(2) + 's');
+    toast('GIF ready: ' + fmtBytes(blob.size));
+  } catch (e) {
+    if (String(e.message) === 'cancelled') { setProgress(0, 'cancelled'); toast('Cancelled.'); }
+    else { console.error(e); setProgress(0, 'failed: ' + e.message); toast('GIF export failed: ' + e.message, 5000); }
+  } finally { endBusy(); }
+}
+
+/* ----------------------------------------------------------- WebM muxer */
+function ebmlNum(id) {           // element IDs are written raw
+  const b = [];
+  let n = id;
+  const bytes = n > 0xFFFFFF ? 4 : n > 0xFFFF ? 3 : n > 0xFF ? 2 : 1;
+  for (let i = bytes - 1; i >= 0; i--) b.push((n >> (i * 8)) & 255);
+  return b;
+}
+function ebmlSize(v) {
+  let len = 1;
+  while (v >= Math.pow(2, 7 * len) - 1 && len < 8) len++;
+  const b = new Array(len);
+  for (let i = 0; i < len; i++) b[len - 1 - i] = Math.floor(v / Math.pow(2, 8 * i)) % 256;
+  b[0] |= (1 << (8 - len));
+  return b;
+}
+function ebmlUint(v) {
+  const b = [];
+  let n = Math.max(0, Math.round(v));
+  do { b.unshift(n & 255); n = Math.floor(n / 256); } while (n > 0);
+  return b;
+}
+function ebmlFloat64(v) {
+  const dv = new DataView(new ArrayBuffer(8)); dv.setFloat64(0, v, false);
+  return Array.from(new Uint8Array(dv.buffer));
+}
+function ebmlStr(s) { const b = []; for (let i = 0; i < s.length; i++) b.push(s.charCodeAt(i) & 255); return b; }
+function el_(id, payload) { return ebmlNum(id).concat(ebmlSize(payload.length), payload); }
+function elu(id, v) { return el_(id, ebmlUint(v)); }
+function els(id, v) { return el_(id, ebmlStr(v)); }
+function elf(id, v) { return el_(id, ebmlFloat64(v)); }
+
+function buildWebm(frames, W, H, durSec, codecId) {
+  // frames: [{data:Uint8Array, tsMs:number, key:boolean}]
+  const header = ebmlNum(0x1A45DFA3);
+  const hdrPayload = [].concat(
+    elu(0x4286, 1), elu(0x42F7, 1), elu(0x42F2, 4), elu(0x42F3, 8),
+    els(0x4282, 'webm'), elu(0x4287, 2), elu(0x4285, 2));
+  const ebmlHead = header.concat(ebmlSize(hdrPayload.length), hdrPayload);
+
+  const info = el_(0x1549A966, [].concat(
+    elu(0x2AD7B1, 1000000),
+    els(0x4D80, 'Electric Loom'),
+    els(0x5741, 'Electric Loom'),
+    elf(0x4489, durSec * 1000)));
+
+  const video = el_(0xE0, [].concat(elu(0xB0, W), elu(0xBA, H)));
+  const track = el_(0xAE, [].concat(
+    elu(0xD7, 1), elu(0x73C5, 1), elu(0x83, 1), elu(0x9C, 0),
+    els(0x86, codecId),
+    elu(0x23E383, Math.round(durSec * 1e9 / frames.length)),
+    video));
+  const tracks = el_(0x1654AE6B, track);
+
+  const clusters = [];
+  let i = 0;
+  while (i < frames.length) {
+    const base = frames[i].tsMs;
+    const blocks = [];
+    while (i < frames.length) {
+      const rel = Math.round(frames[i].tsMs - base);
+      if (rel > 30000 || (blocks.length && frames[i].key)) break;
+      const f = frames[i];
+      const head2 = [0x81, (rel >> 8) & 255, rel & 255, f.key ? 0x80 : 0x00];
+      const payload = new Uint8Array(4 + f.data.length);
+      payload.set(head2, 0); payload.set(f.data, 4);
+      blocks.push({ id: 0xA3, data: payload });
+      i++;
+    }
+    let clen = 0;
+    const tc = elu(0xE7, Math.round(base));
+    clen += tc.length;
+    const blockHeads = blocks.map(b => ebmlNum(b.id).concat(ebmlSize(b.data.length)));
+    blockHeads.forEach((h, j) => { clen += h.length + blocks[j].data.length; });
+    const parts = [new Uint8Array(ebmlNum(0x1F43B675).concat(ebmlSize(clen), tc))];
+    blockHeads.forEach((h, j) => { parts.push(new Uint8Array(h), blocks[j].data); });
+    clusters.push(...parts);
+  }
+
+  let segLen = info.length + tracks.length;
+  clusters.forEach(c => segLen += c.length);
+  const segHead = ebmlNum(0x18538067).concat(ebmlSize(segLen));
+
+  const out = [new Uint8Array(ebmlHead), new Uint8Array(segHead), new Uint8Array(info), new Uint8Array(tracks)];
+  clusters.forEach(c => out.push(c));
+  return new Blob(out, { type: 'video/webm' });
+}
+
+const VID_CODECS = [
+  { label: 'VP9', codec: 'vp09.00.10.08', mk: 'V_VP9' },
+  { label: 'VP8', codec: 'vp8', mk: 'V_VP8' },
+  { label: 'AV1', codec: 'av01.0.08M.08', mk: 'V_AV1' }
+];
+let VID_OK = [];
+async function probeCodecs() {
+  const sel = $('#vidCodec'); sel.innerHTML = '';
+  if (typeof VideoEncoder === 'undefined') {
+    $('#vidInfo').textContent = 'WebCodecs is not available in this browser, so WebM falls back to MediaRecorder: ' +
+      'capture runs in real time and frame timing is approximate. Chrome or Edge gives you the exact path.';
+    const o = document.createElement('option'); o.value = 'mr'; o.textContent = 'MediaRecorder (fallback)';
+    sel.appendChild(o); S.vid.codec = 'mr';
+    return;
+  }
+  for (const c of VID_CODECS) {
+    try {
+      const r = await VideoEncoder.isConfigSupported({ codec: c.codec, width: 1280, height: 720, bitrate: 4e6, framerate: 30 });
+      if (r && r.supported) VID_OK.push(c);
+    } catch (e) {}
+  }
+  if (!VID_OK.length) {
+    const o = document.createElement('option'); o.value = 'mr'; o.textContent = 'MediaRecorder (fallback)';
+    sel.appendChild(o); S.vid.codec = 'mr';
+    $('#vidInfo').textContent = 'No WebCodecs video encoder accepted a config here; using MediaRecorder.';
+    return;
+  }
+  VID_OK.forEach(c => { const o = document.createElement('option'); o.value = c.codec; o.textContent = c.label; sel.appendChild(o); });
+  S.vid.codec = VID_OK[0].codec;
+  sel.value = S.vid.codec;
+  $('#vidInfo').textContent = 'Frames are encoded one at a time with exact timestamps, so the file is exactly ' +
+    'the length you asked for and the last frame hands straight back to the first.';
+}
+
+async function exportWebm() {
+  const W = S.out.w | 0, H = S.out.h | 0, N = totalFrames(), ss = S.out.ss;
+  const durSec = S.out.dur;
+  beginBusy('starting encoder...');
+  const t0 = performance.now();
+  try {
+    if (S.vid.codec === 'mr') { await exportWebmMediaRecorder(); return; }
+    const cinfo = VID_CODECS.find(c => c.codec === S.vid.codec) || VID_CODECS[0];
+    const bitrate = Math.round(W * H * S.out.fps * S.vid.q);
+    const chunks = [];
+    let encErr = null;
+    const enc = new VideoEncoder({
+      output: (chunk) => {
+        const d = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(d);
+        chunks.push({ data: d, tsMs: chunk.timestamp / 1000, key: chunk.type === 'key' });
+      },
+      error: e => { encErr = e; }
+    });
+    enc.configure({
+      codec: cinfo.codec, width: W, height: H, bitrate,
+      framerate: S.out.fps, latencyMode: 'quality'
+    });
+    const frameDurUs = durSec * 1e6 / N;
+    const kfEvery = Math.max(1, Math.round(S.out.fps * 2));
+    for (let i = 0; i < N; i++) {
+      if (CANCEL) break;
+      if (encErr) throw encErr;
+      await yieldUi();
+      render(i / N, W, H, ss);
+      const px = readFrame(W, H);
+      const vf = new VideoFrame(px, {
+        format: 'RGBA', codedWidth: W, codedHeight: H,
+        timestamp: Math.round(i * frameDurUs), duration: Math.round(frameDurUs)
+      });
+      enc.encode(vf, { keyFrame: i % kfEvery === 0 });
+      vf.close();
+      while (enc.encodeQueueSize > 8) await yieldUi();
+      const el2 = (performance.now() - t0) / 1000;
+      setProgress(0.05 + i / N * 0.9, 'encoding   ' + (i + 1) + '/' + N + ' frames\n' +
+        cinfo.label + ' at ' + (bitrate / 1e6).toFixed(1) + ' Mbps\nelapsed ' + fmtTime(el2) +
+        ', about ' + fmtTime(i > 2 ? el2 / i * (N - i) : NaN) + ' left');
+    }
+    if (CANCEL) { try { enc.close(); } catch (e) {} throw new Error('cancelled'); }
+    await enc.flush();
+    enc.close();
+    if (encErr) throw encErr;
+    chunks.sort((a, b) => a.tsMs - b.tsMs);
+    const blob = buildWebm(chunks, W, H, durSec, cinfo.mk);
+    addOutput('WEBM', baseName() + '.webm', blob);
+    setProgress(1, 'done  ' + fmtBytes(blob.size) + '  in ' + fmtTime((performance.now() - t0) / 1000) +
+      '\n' + N + ' frames, exactly ' + durSec.toFixed(2) + 's');
+    toast('WebM ready: ' + fmtBytes(blob.size));
+  } catch (e) {
+    if (String(e.message) === 'cancelled') { setProgress(0, 'cancelled'); toast('Cancelled.'); }
+    else { console.error(e); setProgress(0, 'failed: ' + (e.message || e)); toast('WebM export failed: ' + (e.message || e), 5000); }
+  } finally { endBusy(); }
+}
+
+async function exportWebmMediaRecorder() {
+  const W = S.out.w | 0, H = S.out.h | 0, N = totalFrames(), ss = S.out.ss, fps = S.out.fps;
+  const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported(t));
+  if (!mime) throw new Error('no WebM MediaRecorder support');
+  render(0, W, H, ss);
+  const stream = cvs.captureStream(0);
+  const track = stream.getVideoTracks()[0];
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(W * H * fps * S.vid.q) });
+  const bits = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) bits.push(e.data); };
+  const stopped = new Promise(r => rec.onstop = r);
+  rec.start();
+  const step = 1000 / fps;
+  const t0 = performance.now();
+  for (let i = 0; i < N; i++) {
+    if (CANCEL) break;
+    render(i / N, W, H, ss);
+    if (track.requestFrame) track.requestFrame();
+    const want = t0 + (i + 1) * step;
+    while (performance.now() < want) await new Promise(r => setTimeout(r, 1));
+    setProgress(0.05 + i / N * 0.9, 'real-time capture   ' + (i + 1) + '/' + N +
+      '\nMediaRecorder fallback: timing is approximate');
+  }
+  rec.stop();
+  await stopped;
+  const blob = new Blob(bits, { type: mime });
+  addOutput('WEBM', baseName() + '.webm', blob);
+  setProgress(1, 'done  ' + fmtBytes(blob.size));
+  toast('WebM ready (fallback path): ' + fmtBytes(blob.size));
+}
+
+/* ------------------------------------------------------------- PNG + ZIP */
+const CRC_T = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = CRC_T[(c ^ buf[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function dosTime(d) {
+  return ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF;
+}
+function dosDate(d) {
+  return (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+}
+function w32(a, v) { a.push(v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255); }
+function w16(a, v) { a.push(v & 255, (v >> 8) & 255); }
+
+async function exportPngs() {
+  const W = S.out.w | 0, H = S.out.h | 0, N = totalFrames(), ss = S.out.ss;
+  beginBusy('rendering frames...');
+  const t0 = performance.now();
+  try {
+    const c2 = document.createElement('canvas'); c2.width = W; c2.height = H;
+    const ctx = c2.getContext('2d', { willReadFrequently: false });
+    const img = ctx.createImageData(W, H);
+    const files = [];
+    const now = new Date();
+    const dt = dosTime(now), dd = dosDate(now);
+    const chunks = [];
+    let offset = 0, total = 0;
+    for (let i = 0; i < N; i++) {
+      if (CANCEL) break;
+      await yieldUi();
+      render(i / N, W, H, ss);
+      const px = readFrame(W, H);
+      img.data.set(px);
+      ctx.putImageData(img, 0, 0);
+      const blob = await new Promise(r => c2.toBlob(r, 'image/png'));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      total += bytes.length;
+      if (total > 4 * 1024 * 1024 * 1024 - 1e6) throw new Error('the zip would pass the 4 GB single-file limit; use fewer frames or a smaller size');
+      const name = 'frame_' + String(i).padStart(4, '0') + '.png';
+      const nameBytes = new TextEncoder().encode(name);
+      const crc = crc32(bytes);
+      const lh = [];
+      w32(lh, 0x04034b50); w16(lh, 20); w16(lh, 0); w16(lh, 0);
+      w16(lh, dt); w16(lh, dd); w32(lh, crc); w32(lh, bytes.length); w32(lh, bytes.length);
+      w16(lh, nameBytes.length); w16(lh, 0);
+      const lhb = new Uint8Array(lh);
+      chunks.push(lhb, nameBytes, bytes);
+      files.push({ name: nameBytes, crc, size: bytes.length, offset });
+      offset += lhb.length + nameBytes.length + bytes.length;
+      const el2 = (performance.now() - t0) / 1000;
+      setProgress(i / N * 0.97, 'writing   ' + (i + 1) + '/' + N + ' PNG frames\n' +
+        fmtBytes(total) + ' so far\nelapsed ' + fmtTime(el2) + ', about ' +
+        fmtTime(i > 2 ? el2 / i * (N - i) : NaN) + ' left');
+    }
+    if (CANCEL) throw new Error('cancelled');
+    const cd = [];
+    files.forEach(f => {
+      w32(cd, 0x02014b50); w16(cd, 20); w16(cd, 20); w16(cd, 0); w16(cd, 0);
+      w16(cd, dt); w16(cd, dd); w32(cd, f.crc); w32(cd, f.size); w32(cd, f.size);
+      w16(cd, f.name.length); w16(cd, 0); w16(cd, 0); w16(cd, 0); w16(cd, 0); w32(cd, 0);
+      w32(cd, f.offset);
+      for (let i = 0; i < f.name.length; i++) cd.push(f.name[i]);
+    });
+    const cdb = new Uint8Array(cd);
+    const eo = [];
+    w32(eo, 0x06054b50); w16(eo, 0); w16(eo, 0);
+    w16(eo, files.length); w16(eo, files.length);
+    w32(eo, cdb.length); w32(eo, offset); w16(eo, 0);
+    chunks.push(cdb, new Uint8Array(eo));
+    const blob = new Blob(chunks, { type: 'application/zip' });
+    addOutput('ZIP', baseName() + '-png.zip', blob);
+    setProgress(1, 'done  ' + fmtBytes(blob.size) + '  in ' + fmtTime((performance.now() - t0) / 1000) +
+      '\n' + files.length + ' PNG frames' + (S.out.bg === 'alpha' ? ', with alpha' : ''));
+    toast('PNG frames ready: ' + fmtBytes(blob.size));
+  } catch (e) {
+    if (String(e.message) === 'cancelled') { setProgress(0, 'cancelled'); toast('Cancelled.'); }
+    else { console.error(e); setProgress(0, 'failed: ' + e.message); toast('PNG export failed: ' + e.message, 5000); }
+  } finally { endBusy(); }
+}
+
+/* --------------------------------------------------------- loop verifier */
+async function verifyLoop() {
+  const W = Math.min(S.out.w, 960) | 0;
+  const H = Math.max(1, Math.round(W * S.out.h / S.out.w));
+  beginBusy('verifying the seam...');
+  try {
+    render(0, W, H, S.out.ss);
+    const a = readFrame(W, H);
+    await yieldUi();
+    render(1, W, H, S.out.ss);   // t=1 is the frame AFTER the last one: must equal t=0
+    const b = readFrame(W, H);
+    let maxd = 0, sum = 0, n = 0;
+    for (let i = 0; i < a.length; i++) {
+      const d = Math.abs(a[i] - b[i]);
+      if (d > maxd) maxd = d;
+      sum += d * d; n++;
+    }
+    const rms = Math.sqrt(sum / n);
+    const badge = $('#seamBadge');
+    const good = maxd <= 1;
+    badge.className = 'show ' + (good ? 'good' : maxd <= 4 ? '' : 'bad');
+    badge.textContent = good ? 'loop is exact  (max diff 0)' :
+      'seam diff  max ' + maxd + '  rms ' + rms.toFixed(2);
+    setTimeout(() => badge.classList.remove('show'), 6000);
+    setProgress(1, good
+      ? 'Exact loop. Frame at t=1 is pixel-identical to frame 0, so the last frame hands straight back to the first.'
+      : 'Seam max diff  ' + maxd + '/255, rms ' + rms.toFixed(2) + '. Grain and dither noise can show a tiny non-zero value; anything above ~4 means a parameter is not on a whole number of cycles.');
+    toast(good ? 'Loop verified: pixel-exact.' : 'Seam max difference ' + maxd + '/255');
+  } catch (e) {
+    console.error(e); setProgress(0, 'verify failed: ' + e.message);
+  } finally { endBusy(); }
+}

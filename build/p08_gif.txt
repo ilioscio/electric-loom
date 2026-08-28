@@ -1,0 +1,405 @@
+/* =====================================================================
+   GIF ENGINE
+   ---------------------------------------------------------------------
+   ALGO_SRC is shared verbatim between the worker pool and a main-thread
+   fallback (blob workers are blocked on file:// in Chrome). It holds:
+     - a 6-6-6 histogram median cut with optional k-means refinement
+     - a 262144-entry nearest-colour cache
+     - error-diffusion and ordered dithering
+     - the GIF LZW compressor
+   ===================================================================== */
+const ALGO_SRC = String.raw`
+function binR(i){ return ((i>>12)&63)*4+2; }
+function binG(i){ return ((i>>6)&63)*4+2; }
+function binB(i){ return (i&63)*4+2; }
+var WR=0.299, WG=0.587, WB=0.114;
+
+function buildPalette(hist, K, refine){
+  var pop = [];
+  for(var i=0;i<262144;i++){ if(hist[i]) pop.push(i); }
+  var n = pop.length;
+  if(n === 0){ return { pal:new Uint8Array(K*3), cache:new Uint8Array(262144) }; }
+  if(n <= K){
+    var pal0 = new Uint8Array(K*3);
+    for(var j=0;j<n;j++){ pal0[j*3]=binR(pop[j]); pal0[j*3+1]=binG(pop[j]); pal0[j*3+2]=binB(pop[j]); }
+    for(var j2=n;j2<K;j2++){ pal0[j2*3]=pal0[0]; pal0[j2*3+1]=pal0[1]; pal0[j2*3+2]=pal0[2]; }
+    return { pal:pal0, cache:makeCache(pal0, Math.max(n,1), K), used:n };
+  }
+  var order = new Int32Array(pop);
+  var R = new Uint8Array(n), G = new Uint8Array(n), B = new Uint8Array(n);
+  var C = new Float64Array(n);
+  for(var k=0;k<n;k++){ var b=order[k]; R[k]=binR(b); G[k]=binG(b); B[k]=binB(b); C[k]=hist[b]; }
+
+  // boxes over ranges of an index permutation
+  var idx = new Int32Array(n);
+  for(var q=0;q<n;q++) idx[q]=q;
+  var boxes = [ mkBox(0, n) ];
+
+  function mkBox(s,e){
+    var rmin=255,rmax=0,gmin=255,gmax=0,bmin=255,bmax=0,cnt=0;
+    for(var t=s;t<e;t++){
+      var u=idx[t];
+      var r=R[u],g=G[u],b2=B[u];
+      if(r<rmin)rmin=r; if(r>rmax)rmax=r;
+      if(g<gmin)gmin=g; if(g>gmax)gmax=g;
+      if(b2<bmin)bmin=b2; if(b2>bmax)bmax=b2;
+      cnt+=C[u];
+    }
+    var dr=(rmax-rmin)*WR, dg=(gmax-gmin)*WG, db=(bmax-bmin)*WB;
+    var ax = dr>=dg ? (dr>=db?0:2) : (dg>=db?1:2);
+    var span = Math.max(dr,dg,db);
+    return { s:s, e:e, cnt:cnt, ax:ax, span:span, pri:cnt*(span+1) };
+  }
+  function splitBox(bx){
+    var s=bx.s, e=bx.e, ax=bx.ax;
+    var sub = Array.prototype.slice.call(idx.subarray(s,e));
+    var key = ax===0?R:ax===1?G:B;
+    sub.sort(function(a,b){ return key[a]-key[b]; });
+    for(var t=0;t<sub.length;t++) idx[s+t]=sub[t];
+    var half = bx.cnt/2, acc=0, cut=s;
+    for(var t2=s;t2<e-1;t2++){ acc+=C[idx[t2]]; if(acc>=half){ cut=t2+1; break; } cut=t2+1; }
+    if(cut<=s) cut=s+1;
+    if(cut>=e) cut=e-1;
+    return [ mkBox(s,cut), mkBox(cut,e) ];
+  }
+  while(boxes.length < K){
+    var best=-1, bp=-1;
+    for(var t3=0;t3<boxes.length;t3++){
+      if(boxes[t3].e - boxes[t3].s < 2) continue;
+      if(boxes[t3].span <= 0) continue;
+      if(boxes[t3].pri > bp){ bp=boxes[t3].pri; best=t3; }
+    }
+    if(best < 0) break;
+    var two = splitBox(boxes[best]);
+    boxes.splice(best,1,two[0],two[1]);
+  }
+  var KC = boxes.length;
+  var cr = new Float64Array(KC), cg = new Float64Array(KC), cb = new Float64Array(KC), cw = new Float64Array(KC);
+  for(var t4=0;t4<KC;t4++){
+    var bx=boxes[t4], sr=0,sg=0,sb=0,sw=0;
+    for(var u2=bx.s;u2<bx.e;u2++){
+      var v=idx[u2], w=C[v];
+      sr+=R[v]*w; sg+=G[v]*w; sb+=B[v]*w; sw+=w;
+    }
+    if(sw>0){ cr[t4]=sr/sw; cg[t4]=sg/sw; cb[t4]=sb/sw; cw[t4]=sw; }
+    else { cr[t4]=R[idx[bx.s]]; cg[t4]=G[idx[bx.s]]; cb[t4]=B[idx[bx.s]]; cw[t4]=1; }
+  }
+  if(refine){
+    var ar=new Float64Array(KC), ag=new Float64Array(KC), ab=new Float64Array(KC), aw=new Float64Array(KC);
+    for(var it=0; it<4; it++){
+      ar.fill(0); ag.fill(0); ab.fill(0); aw.fill(0);
+      for(var p2=0;p2<n;p2++){
+        var pr=R[p2], pg=G[p2], pb=B[p2], pw=C[p2];
+        var bi=0, bd=1e30;
+        for(var c2=0;c2<KC;c2++){
+          var dr2=(pr-cr[c2]), dg2=(pg-cg[c2]), db2=(pb-cb[c2]);
+          var d=dr2*dr2*WR + dg2*dg2*WG + db2*db2*WB;
+          if(d<bd){ bd=d; bi=c2; }
+        }
+        ar[bi]+=pr*pw; ag[bi]+=pg*pw; ab[bi]+=pb*pw; aw[bi]+=pw;
+      }
+      for(var c3=0;c3<KC;c3++){
+        if(aw[c3]>0){ cr[c3]=ar[c3]/aw[c3]; cg[c3]=ag[c3]/aw[c3]; cb[c3]=ab[c3]/aw[c3]; }
+      }
+    }
+  }
+  var pal = new Uint8Array(K*3);
+  for(var c4=0;c4<KC;c4++){
+    pal[c4*3]   = Math.max(0,Math.min(255,Math.round(cr[c4])));
+    pal[c4*3+1] = Math.max(0,Math.min(255,Math.round(cg[c4])));
+    pal[c4*3+2] = Math.max(0,Math.min(255,Math.round(cb[c4])));
+  }
+  for(var c5=KC;c5<K;c5++){ pal[c5*3]=pal[0]; pal[c5*3+1]=pal[1]; pal[c5*3+2]=pal[2]; }
+  return { pal:pal, cache:makeCache(pal, KC, K), used:KC };
+}
+
+function makeCache(pal, used, K){
+  var cache = new Uint8Array(262144);
+  var n = used>0?used:K;
+  for(var i=0;i<262144;i++){
+    var r=binR(i), g=binG(i), b=binB(i);
+    var bi=0, bd=1e30;
+    for(var c=0;c<n;c++){
+      var dr=r-pal[c*3], dg=g-pal[c*3+1], db=b-pal[c*3+2];
+      var d=dr*dr*WR + dg*dg*WG + db*db*WB;
+      if(d<bd){ bd=d; bi=c; }
+    }
+    cache[i]=bi;
+  }
+  return cache;
+}
+
+var BAYER8 = [
+   0,32, 8,40, 2,34,10,42, 48,16,56,24,50,18,58,26,
+  12,44, 4,36,14,46, 6,38, 60,28,52,20,62,30,54,22,
+   3,35,11,43, 1,33, 9,41, 51,19,59,27,49,17,57,25,
+  15,47, 7,39,13,45, 5,37, 63,31,55,23,61,29,53,21];
+var BAYER4 = [0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5];
+
+/* kernel: triples of dx, dy, weight */
+var KERNELS = {
+  fs:       [1,0,7/16, -1,1,3/16, 0,1,5/16, 1,1,1/16],
+  sierra:   [1,0,2/4, -1,1,1/4, 0,1,1/4],
+  atkinson: [1,0,1/8, 2,0,1/8, -1,1,1/8, 0,1,1/8, 1,1,1/8, 0,2,1/8]
+};
+
+function encodeFrame(rgba, w, h, pal, cache, dither, strength, transIdx, alphaCut, minCodeSize){
+  var n = w*h;
+  var out = new Uint8Array(n);
+  var useTrans = transIdx >= 0;
+
+  if(dither === 'bayer8' || dither === 'bayer4'){
+    var M = dither === 'bayer8' ? BAYER8 : BAYER4;
+    var MS = dither === 'bayer8' ? 8 : 4;
+    var MN = MS*MS;
+    var amp = strength * (255/ (MN/4) ) * 0.5;
+    for(var y=0;y<h;y++){
+      for(var x=0;x<w;x++){
+        var i=(y*w+x);
+        var o=i*4;
+        if(useTrans && rgba[o+3] < alphaCut){ out[i]=transIdx; continue; }
+        var thr = (M[(y%MS)*MS + (x%MS)]/MN - 0.5) * amp;
+        var r = rgba[o]+thr, g = rgba[o+1]+thr, b = rgba[o+2]+thr;
+        r = r<0?0:r>255?255:r; g = g<0?0:g>255?255:g; b = b<0?0:b>255?255:b;
+        out[i] = cache[((r>>2)<<12) | ((g>>2)<<6) | (b>>2)];
+      }
+    }
+  } else if(dither === 'none' || !KERNELS[dither] || strength <= 0){
+    for(var i2=0;i2<n;i2++){
+      var o2=i2*4;
+      if(useTrans && rgba[o2+3] < alphaCut){ out[i2]=transIdx; continue; }
+      out[i2] = cache[((rgba[o2]>>2)<<12) | ((rgba[o2+1]>>2)<<6) | (rgba[o2+2]>>2)];
+    }
+  } else {
+    var K = KERNELS[dither];
+    var rows = 3;
+    var stride = (w+4)*3;
+    var err = new Float32Array(stride*rows);
+    var base = 0;
+    for(var y2=0;y2<h;y2++){
+      var serp = (y2 & 1) === 1;
+      var x0 = serp ? w-1 : 0, x1 = serp ? -1 : w, dx = serp ? -1 : 1;
+      var cur = (base % rows) * stride;
+      for(var x2=x0; x2!==x1; x2+=dx){
+        var i3=(y2*w+x2), o3=i3*4;
+        var ei = cur + (x2+2)*3;
+        if(useTrans && rgba[o3+3] < alphaCut){ out[i3]=transIdx; err[ei]=0; err[ei+1]=0; err[ei+2]=0; continue; }
+        var rr = rgba[o3]   + err[ei];
+        var gg = rgba[o3+1] + err[ei+1];
+        var bb = rgba[o3+2] + err[ei+2];
+        err[ei]=0; err[ei+1]=0; err[ei+2]=0;
+        var rc = rr<0?0:rr>255?255:rr;
+        var gc = gg<0?0:gg>255?255:gg;
+        var bc = bb<0?0:bb>255?255:bb;
+        var pi = cache[((rc>>2)<<12) | ((gc>>2)<<6) | (bc>>2)];
+        out[i3]=pi;
+        var er = (rr - pal[pi*3])   * strength;
+        var eg = (gg - pal[pi*3+1]) * strength;
+        var eb = (bb - pal[pi*3+2]) * strength;
+        for(var kk=0;kk<K.length;kk+=3){
+          var kdx = serp ? -K[kk] : K[kk];
+          var kdy = K[kk+1], kw = K[kk+2];
+          var tx = x2 + kdx;
+          if(tx < 0 || tx >= w) continue;
+          var trow = ((base + kdy) % rows) * stride;
+          var ti = trow + (tx+2)*3;
+          err[ti]   += er*kw;
+          err[ti+1] += eg*kw;
+          err[ti+2] += eb*kw;
+        }
+      }
+      // retire the row we just finished so it can be reused two rows later
+      var clr = (base % rows) * stride;
+      for(var z=0; z<stride; z++) err[clr+z]=0;
+      base++;
+    }
+  }
+  return lzw(out, minCodeSize);
+}
+
+/* ---- GIF LZW (Weiner's reference algorithm) ---- */
+function lzw(pixels, minCodeSize){
+  var cap = 1024, len = 0, buf = new Uint8Array(cap);
+  function push(b){ if(len===cap){ cap*=2; var nb=new Uint8Array(cap); nb.set(buf); buf=nb; } buf[len++]=b; }
+
+  var accum = new Uint8Array(256), aCount = 0;
+  function charOut(c){ accum[aCount++]=c; if(aCount>=254) flushChar(); }
+  function flushChar(){
+    if(aCount>0){
+      push(aCount);
+      for(var i=0;i<aCount;i++) push(accum[i]);
+      aCount=0;
+    }
+  }
+
+  var BITS=12, HSIZE=5003, maxmaxcode=1<<BITS;
+  var htab=new Int32Array(HSIZE), codetab=new Int32Array(HSIZE);
+  var nBits, maxcode, freeEnt=0, clearFlg=false, gInitBits, ClearCode, EOFCode;
+  var curAccum=0, curBits=0;
+  var masks=[0x0000,0x0001,0x0003,0x0007,0x000F,0x001F,0x003F,0x007F,0x00FF,
+             0x01FF,0x03FF,0x07FF,0x0FFF,0x1FFF,0x3FFF,0x7FFF,0xFFFF];
+  function MAXCODE(nb){ return (1<<nb)-1; }
+  function clHash(hs){ for(var i=0;i<hs;i++) htab[i]=-1; }
+  function output(code){
+    curAccum &= masks[curBits];
+    if(curBits>0) curAccum |= (code<<curBits); else curAccum = code;
+    curBits += nBits;
+    while(curBits>=8){ charOut(curAccum & 0xff); curAccum >>= 8; curBits -= 8; }
+    if(freeEnt > maxcode || clearFlg){
+      if(clearFlg){ nBits=gInitBits; maxcode=MAXCODE(nBits); clearFlg=false; }
+      else { nBits++; maxcode = (nBits===BITS) ? maxmaxcode : MAXCODE(nBits); }
+    }
+    if(code===EOFCode){
+      while(curBits>0){ charOut(curAccum & 0xff); curAccum >>= 8; curBits -= 8; }
+      flushChar();
+    }
+  }
+  function clBlock(){ clHash(HSIZE); freeEnt = ClearCode+2; clearFlg = true; output(ClearCode); }
+
+  push(minCodeSize);
+  gInitBits = minCodeSize+1;
+  clearFlg=false; nBits=gInitBits; maxcode=MAXCODE(nBits);
+  ClearCode = 1<<minCodeSize; EOFCode = ClearCode+1; freeEnt = ClearCode+2;
+  aCount=0;
+  var hshift=0;
+  for(var f=HSIZE; f<65536; f*=2) hshift++;
+  hshift = 8 - hshift;
+  clHash(HSIZE);
+  output(ClearCode);
+
+  var p = 0, np = pixels.length;
+  var ent = np>0 ? pixels[p++] : 0;
+  outer:
+  while(p < np){
+    var c = pixels[p++];
+    var fcode = (c<<BITS) + ent;
+    var i = (c<<hshift) ^ ent;
+    if(htab[i] === fcode){ ent = codetab[i]; continue; }
+    if(htab[i] >= 0){
+      var disp = HSIZE - i;
+      if(i===0) disp = 1;
+      do {
+        i -= disp; if(i<0) i += HSIZE;
+        if(htab[i] === fcode){ ent = codetab[i]; continue outer; }
+      } while(htab[i] >= 0);
+    }
+    output(ent);
+    ent = c;
+    if(freeEnt < maxmaxcode){ codetab[i]=freeEnt++; htab[i]=fcode; }
+    else clBlock();
+  }
+  output(ent);
+  output(EOFCode);
+  push(0);
+  return buf.slice(0, len);
+}
+`;
+
+const WORKER_GLUE = `
+self.onmessage = function(ev){
+  var m = ev.data;
+  if(m.cmd === 'pal'){
+    var r = buildPalette(new Uint32Array(m.hist), m.K, m.refine);
+    self.postMessage({id:m.id, pal:r.pal.buffer, cache:r.cache.buffer, used:r.used||m.K},
+      [r.pal.buffer, r.cache.buffer]);
+  } else if(m.cmd === 'setpal'){
+    self.PAL = new Uint8Array(m.pal); self.CACHE = new Uint8Array(m.cache);
+    self.postMessage({id:m.id, ok:1});
+  } else if(m.cmd === 'frame'){
+    var bytes = encodeFrame(new Uint8Array(m.buf), m.w, m.h, self.PAL, self.CACHE,
+      m.dither, m.strength, m.transIdx, m.alphaCut, m.mcs);
+    self.postMessage({id:m.id, idx:m.idx, bytes:bytes.buffer}, [bytes.buffer]);
+  }
+};
+`;
+
+let ALGO = null;
+function getAlgo() {
+  if (!ALGO) ALGO = new Function(ALGO_SRC + '\nreturn {buildPalette:buildPalette, encodeFrame:encodeFrame};')();
+  return ALGO;
+}
+
+/* ---- worker pool with graceful fallback ---- */
+let WORKERS = null, WORKERS_TRIED = false, WORKER_URL = null;
+function getWorkers() {
+  if (WORKERS_TRIED) return WORKERS;
+  WORKERS_TRIED = true;
+  try {
+    const blob = new Blob([ALGO_SRC + '\n' + WORKER_GLUE], { type: 'text/javascript' });
+    WORKER_URL = URL.createObjectURL(blob);
+    const n = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 8);
+    const list = [];
+    for (let i = 0; i < n; i++) list.push(new Worker(WORKER_URL));
+    // prove one actually runs
+    WORKERS = list;
+  } catch (e) {
+    console.warn('workers unavailable, encoding on the main thread:', e);
+    WORKERS = null;
+  }
+  return WORKERS;
+}
+function wkCall(w, msg, transfer) {
+  return new Promise((res, rej) => {
+    const id = Math.random().toString(36).slice(2);
+    msg.id = id;
+    const on = ev => { if (ev.data && ev.data.id === id) { w.removeEventListener('message', on); res(ev.data); } };
+    const onErr = e => { w.removeEventListener('error', onErr); rej(e); };
+    w.addEventListener('message', on);
+    w.addEventListener('error', onErr, { once: true });
+    w.postMessage(msg, transfer || []);
+  });
+}
+
+/* ---- GIF container assembly ---- */
+function gifHeader(W, H, pal, tableSize, loop) {
+  const gctBytes = tableSize * 3;
+  const b = new Uint8Array(13 + gctBytes + 19);
+  let o = 0;
+  const s = 'GIF89a';
+  for (let i = 0; i < 6; i++) b[o++] = s.charCodeAt(i);
+  b[o++] = W & 255; b[o++] = (W >> 8) & 255;
+  b[o++] = H & 255; b[o++] = (H >> 8) & 255;
+  const nbits = Math.log2(tableSize) - 1;
+  b[o++] = 0x80 | (0x70) | (nbits & 7);   // GCT present, 8-bit colour resolution
+  b[o++] = 0;                              // background index
+  b[o++] = 0;                              // pixel aspect ratio
+  for (let i = 0; i < tableSize; i++) {
+    b[o++] = pal[i * 3] || 0; b[o++] = pal[i * 3 + 1] || 0; b[o++] = pal[i * 3 + 2] || 0;
+  }
+  // NETSCAPE2.0 application extension = loop forever
+  b[o++] = 0x21; b[o++] = 0xFF; b[o++] = 0x0B;
+  const app = 'NETSCAPE2.0';
+  for (let i = 0; i < 11; i++) b[o++] = app.charCodeAt(i);
+  b[o++] = 0x03; b[o++] = 0x01;
+  b[o++] = loop & 255; b[o++] = (loop >> 8) & 255;
+  b[o++] = 0x00;
+  return b.subarray(0, o);
+}
+function gifFrameHeader(W, H, delayCs, transIdx) {
+  const b = new Uint8Array(8 + 10);
+  let o = 0;
+  b[o++] = 0x21; b[o++] = 0xF9; b[o++] = 0x04;
+  const disposal = 1;                        // leave the frame in place
+  b[o++] = (disposal << 2) | (transIdx >= 0 ? 1 : 0);
+  b[o++] = delayCs & 255; b[o++] = (delayCs >> 8) & 255;
+  b[o++] = transIdx >= 0 ? transIdx : 0;
+  b[o++] = 0x00;
+  b[o++] = 0x2C;
+  b[o++] = 0; b[o++] = 0; b[o++] = 0; b[o++] = 0;
+  b[o++] = W & 255; b[o++] = (W >> 8) & 255;
+  b[o++] = H & 255; b[o++] = (H >> 8) & 255;
+  b[o++] = 0x00;
+  return b.subarray(0, o);
+}
+/* integer centisecond delays that sum to exactly the requested duration */
+function delayTable(N, durSec) {
+  const total = Math.max(N * 2, Math.round(durSec * 100));
+  const d = new Uint16Array(N);
+  let acc = 0;
+  for (let i = 0; i < N; i++) {
+    const target = Math.round((i + 1) * total / N);
+    d[i] = target - acc;
+    acc = target;
+  }
+  return d;
+}

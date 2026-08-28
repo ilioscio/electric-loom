@@ -1,0 +1,358 @@
+/* =====================================================================
+   STATE
+   ===================================================================== */
+const GEN_BY_ID = {};
+GENS.forEach(g => GEN_BY_ID[g.id] = g);
+
+const FRAME_DEF = [
+  P(0,'zoom','Zoom',0.1,6,1,0.005),
+  P(0,'rot','Rotation',-3.15,3.15,0,0.005),
+  PI_(0,'spin','Spin x/loop',-4,4,0),
+  P(0,'panx','Pan X',-2,2,0,0.005),
+  P(0,'pany','Pan Y',-2,2,0,0.005),
+  PI_(0,'mirror','Kaleidoscope',0,16,0),
+  P(0,'mrot','Mirror angle',-3.15,3.15,0,0.005),
+  PI_(0,'mspin','Mirror spin x/loop',-3,3,0)
+];
+const POST_DEF = [
+  P(0,'bloom','Bloom',0,3,0.55,0.005),
+  P(0,'thresh','Bloom threshold',0,1.2,0.42,0.005),
+  P(0,'knee','Bloom knee',0.01,1,0.3,0.005),
+  P(0,'radius','Bloom radius',0.3,6,1.6,0.01),
+  P(0,'exposure','Exposure',0.05,4,1.0,0.005),
+  P(0,'contrast','Contrast',0.2,3,1.06,0.005),
+  P(0,'sat','Saturation',0,2.5,1.08,0.005),
+  P(0,'gamma','Gamma',0.4,2.5,1.0,0.005),
+  P(0,'vig','Vignette',0,1,0.28,0.005),
+  P(0,'vigSoft','Vignette softness',0.05,1.2,0.55,0.005),
+  P(0,'grain','Grain',0,1,0.06,0.005),
+  P(0,'chroma','Chromatic aberration',0,3,0.2,0.005),
+  PI_(0,'posterize','Posterize',0,32,0),
+  P(0,'scan','Scanlines',0,1,0,0.005),
+  P(0,'scanFreq','Scanline pitch',0.05,1.5,0.5,0.005)
+];
+const PAL_EXTRA_DEF = [
+  PI_(0,'cycles','Palette cycles x/loop',-6,6,0),
+  P(0,'offset','Palette offset',0,1,0,0.002)
+];
+const ALPHA_DEF = [
+  P(0,'alphaGain','Alpha gain',0.2,12,3.0,0.01),
+  P(0,'alphaBias','Alpha cutoff',0,1,0.06,0.005)
+];
+
+function defObj(defs) { const o = {}; defs.forEach(d => o[d.k] = d.d); return o; }
+function genDefaults(g) { const o = {}; g.params.forEach(p => o[p.k] = p.d); return o; }
+
+const S = {
+  gen: 'warp',
+  seed: 'aurora771',
+  params: {},
+  frame: defObj(FRAME_DEF),
+  post: defObj(POST_DEF),
+  palX: defObj(PAL_EXTRA_DEF),
+  alpha: defObj(ALPHA_DEF),
+  pal: { stops: PAL_PRESETS[0].s.map((c, i) => ({ p: i / PAL_PRESETS[0].s.length, c })), space: 'oklab', preset: 0 },
+  out: { w: 1280, h: 720, dur: 4, fps: 24, ss: 2, bg: 'opaque' },
+  gif: { colors: 256, dither: 'fs', strength: 0.9, kmeans: true },
+  vid: { codec: '', q: 0.22 }
+};
+GENS.forEach(g => S.params[g.id] = genDefaults(g));
+
+let LUT = buildLut(S.pal.stops, S.pal.space);
+const totalFrames = () => Math.max(1, Math.round(S.out.dur * S.out.fps));
+
+/* =====================================================================
+   WEBGL ENGINE
+   ===================================================================== */
+const cvs = $('#gl');
+const gl = cvs.getContext('webgl2', {
+  alpha: true, premultipliedAlpha: false, antialias: false,
+  depth: false, stencil: false, preserveDrawingBuffer: false,
+  powerPreference: 'high-performance', desynchronized: false
+});
+let GL_OK = !!gl;
+let FLOAT_OK = false, FLOAT_BLEND = false, COLOR_FMT = 0;
+
+if (GL_OK) {
+  const cbf = gl.getExtension('EXT_color_buffer_float');
+  const cbh = gl.getExtension('EXT_color_buffer_half_float');
+  gl.getExtension('OES_texture_float_linear');
+  const fb = gl.getExtension('EXT_float_blend');
+  FLOAT_OK = !!(cbf || cbh);
+  FLOAT_BLEND = !!fb;
+  COLOR_FMT = cbf ? gl.RGBA16F : (cbh ? gl.RGBA16F : gl.RGBA8);
+  if (!FLOAT_OK) COLOR_FMT = gl.RGBA8;
+}
+
+const progCache = new Map();
+function makeShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s);
+    console.error('shader compile failed:\n' + log + '\n---\n' +
+      src.split('\n').map((l, i) => (i + 1) + ': ' + l).join('\n'));
+    gl.deleteShader(s); return null;
+  }
+  return s;
+}
+function makeProg(key, vsSrc, fsSrc) {
+  if (progCache.has(key)) return progCache.get(key);
+  const vs = makeShader(gl.VERTEX_SHADER, vsSrc);
+  const fs = makeShader(gl.FRAGMENT_SHADER, fsSrc);
+  if (!vs || !fs) { progCache.set(key, null); return null; }
+  const p = gl.createProgram();
+  gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    console.error('link failed: ' + gl.getProgramInfoLog(p));
+    progCache.set(key, null); return null;
+  }
+  gl.deleteShader(vs); gl.deleteShader(fs);
+  const uni = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) {
+    const info = gl.getActiveUniform(p, i);
+    const nm = info.name.replace(/\[0\]$/, '');
+    uni[nm] = gl.getUniformLocation(p, info.name);
+  }
+  const rec = { p, uni };
+  progCache.set(key, rec);
+  return rec;
+}
+function genProg(g) {
+  return makeProg('gen:' + g.id, VS_QUAD, GLSL_PRELUDE + g.body + GLSL_MAIN);
+}
+
+function u1f(r, n, v) { if (r.uni[n] !== undefined) gl.uniform1f(r.uni[n], v); }
+function u2f(r, n, a, b) { if (r.uni[n] !== undefined) gl.uniform2f(r.uni[n], a, b); }
+function u1i(r, n, v) { if (r.uni[n] !== undefined) gl.uniform1i(r.uni[n], v); }
+function u1fv(r, n, v) { if (r.uni[n] !== undefined) gl.uniform1fv(r.uni[n], v); }
+
+/* ---- render targets ---- */
+const SCRATCH_UNIT = 7;   // never touch units 0-2, the render passes own those
+function makeFbo(w, h, fmt) {
+  const tex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0 + SCRATCH_UNIT);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  const internal = fmt || COLOR_FMT;
+  const type = internal === gl.RGBA8 ? gl.UNSIGNED_BYTE : gl.HALF_FLOAT;
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, gl.RGBA, type, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  gl.activeTexture(gl.TEXTURE0);
+  return { fb, tex, w, h, fmt: internal };
+}
+const rt = {};
+function need(name, w, h, fmt) {
+  const cur = rt[name];
+  if (cur && cur.w === w && cur.h === h && (!fmt || cur.fmt === fmt)) return cur;
+  if (cur) { gl.deleteTexture(cur.tex); gl.deleteFramebuffer(cur.fb); }
+  return (rt[name] = makeFbo(w, h, fmt));
+}
+
+/* ---- palette texture ---- */
+let palTex = null;
+function uploadPalette() {
+  if (!GL_OK) return;
+  if (!palTex) {
+    palTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, palTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, palTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, LUT_N, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, LUT);
+}
+
+let vao = null;
+function ensureVao() { if (!vao) { vao = gl.createVertexArray(); } gl.bindVertexArray(vao); }
+function drawQuad() { gl.drawArrays(gl.TRIANGLES, 0, 3); }
+
+/* ---- common per-frame uniform values ----
+   Spin counts are whole turns per loop, so only the fractional turn matters.
+   Keeping angles inside one turn is mathematically identical and stops the
+   mantissa draining as the spin count climbs, which is what used to make
+   hard-edged patterns twitch at the seam. */
+const wrap1 = x => x - Math.floor(x);
+function frameUniforms(t) {
+  const F = S.frame;
+  return {
+    rot: F.rot + TAU * wrap1(t * F.spin),
+    zoom: F.zoom,
+    pan: [F.panx, F.pany],
+    mirror: F.mirror,
+    mirrorRot: F.mrot + TAU * wrap1(t * F.mspin),
+    palRot: S.palX.offset + wrap1(t * S.palX.cycles),
+    seedF: (hashStr(S.seed) % 100000) / 1000
+  };
+}
+
+const POINTS_PER_PASS = 262144;
+
+/* =====================================================================
+   THE RENDERER
+   render(t, W, H, ss) -> leaves the finished RGBA frame in the canvas
+   drawing buffer (W x H). Deterministic: same inputs, same pixels.
+   ===================================================================== */
+let lastRenderErr = '';
+function render(t, W, H, ss) {
+  if (!GL_OK) return false;
+  ensureVao();
+  const rw = Math.max(1, Math.round(W * ss)), rh = Math.max(1, Math.round(H * ss));
+  const g = GEN_BY_ID[S.gen];
+  const fu = frameUniforms(t);
+  const alphaOn = S.out.bg === 'alpha';
+  const scene = need('scene', rw, rh);
+
+  gl.disable(gl.BLEND);
+  gl.disable(gl.DEPTH_TEST);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, palTex);
+
+  if (g.flame) {
+    const pv = S.params.flame;
+    const acc = need('acc', rw, rh, FLOAT_OK ? COLOR_FMT : gl.RGBA8);
+    const pa = makeProg('flame', FLAME_VS, FLAME_FS);
+    if (!pa) { lastRenderErr = 'flame shader failed'; return false; }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, acc.fb);
+    gl.viewport(0, 0, rw, rh);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(pa.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, palTex);
+    u2f(pa, 'uRes', rw, rh);
+    u1f(pa, 'uT', t); u1f(pa, 'uSeed', fu.seedF);
+    u1f(pa, 'uNT', pv.nt); u1f(pa, 'uVarA', pv.va); u1f(pa, 'uVarB', pv.vb);
+    u1f(pa, 'uMix', pv.mix); u1f(pa, 'uSym', pv.sym); u1f(pa, 'uSpread', pv.spread);
+    u1f(pa, 'uJitter', pv.jit); u1f(pa, 'uSpeed', pv.sp); u1f(pa, 'uIter', pv.it);
+    u1f(pa, 'uPointSize', pv.ps * ss);
+    u1f(pa, 'uZoom', fu.zoom); u1f(pa, 'uRot', fu.rot);
+    u2f(pa, 'uPan', fu.pan[0], fu.pan[1]);
+    u1f(pa, 'uPalRot', fu.palRot);
+    u1i(pa, 'uPal', 0);
+    u1f(pa, 'uWeight', 1.0);
+    const passes = Math.max(1, Math.round(pv.q));
+    for (let i = 0; i < passes; i++) {
+      u1f(pa, 'uPass', i);
+      gl.drawArrays(gl.POINTS, 0, POINTS_PER_PASS);
+    }
+    gl.disable(gl.BLEND);
+
+    const pr = makeProg('flameres', VS_QUAD, FLAME_RESOLVE);
+    if (!pr) { lastRenderErr = 'flame resolve failed'; return false; }
+    const ptsz = pv.ps * ss;
+    /* Reference density for the log tone map. A flame's histogram is wildly
+       peaked - the core can run a hundred times the mean - so normalising to
+       anything near the average clips it to white. This reference is fixed
+       (never a per-frame maximum, which would make the brightness pump from
+       frame to frame and break the loop) and generous enough to leave the
+       core headroom; Exposure is then a straightforward brightness dial. */
+    const refDens = Math.max(1e-3, (POINTS_PER_PASS * passes) / (rw * rh) * ptsz * ptsz * 34.0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fb);
+    gl.viewport(0, 0, rw, rh);
+    gl.useProgram(pr.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, acc.tex);
+    u1i(pr, 'uAcc', 0);
+    u2f(pr, 'uRes', rw, rh);
+    u1f(pr, 'uExposure', pv.exp); u1f(pr, 'uGamma', pv.gam); u1f(pr, 'uSat', pv.sat);
+    u1f(pr, 'uNorm', Math.log(1 + refDens));
+    u1f(pr, 'uMirror', fu.mirror); u1f(pr, 'uMirrorRot', fu.mirrorRot);
+    u1f(pr, 'uAlphaMode', alphaOn ? 1 : 0);
+    u1f(pr, 'uAlphaGain', S.alpha.alphaGain); u1f(pr, 'uAlphaBias', S.alpha.alphaBias);
+    drawQuad();
+  } else {
+    const pg = genProg(g);
+    if (!pg) { lastRenderErr = 'generator "' + g.name + '" failed to compile'; return false; }
+    const arr = new Float32Array(16);
+    g.params.forEach(pd => { arr[pd.i] = S.params[g.id][pd.k]; });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fb);
+    gl.viewport(0, 0, rw, rh);
+    gl.useProgram(pg.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, palTex);
+    u1i(pg, 'uPal', 0);
+    u2f(pg, 'uRes', rw, rh);
+    u1f(pg, 'uT', t); u1f(pg, 'uSeed', fu.seedF);
+    u1fv(pg, 'uP', arr);
+    u1f(pg, 'uZoom', fu.zoom); u1f(pg, 'uRot', fu.rot);
+    u1f(pg, 'uMirror', fu.mirror); u1f(pg, 'uMirrorRot', fu.mirrorRot);
+    u1f(pg, 'uPalRot', fu.palRot);
+    u2f(pg, 'uPan', fu.pan[0], fu.pan[1]);
+    u1f(pg, 'uAlphaMode', alphaOn ? 1 : 0);
+    u1f(pg, 'uAlphaGain', S.alpha.alphaGain);
+    u1f(pg, 'uAlphaBias', S.alpha.alphaBias);
+    drawQuad();
+  }
+
+  /* ---- bloom ---- */
+  const P_ = S.post;
+  const bw = Math.max(2, rw >> 2), bh = Math.max(2, rh >> 2);
+  const b0 = need('b0', bw, bh), b1 = need('b1', bw, bh), b2 = need('b2', bw, bh), b3 = need('b3', bw, bh);
+  if (P_.bloom > 0.0005) {
+    const pb = makeProg('bright', VS_QUAD, FS_BRIGHT);
+    const pblur = makeProg('blur', VS_QUAD, FS_BLUR);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, b0.fb); gl.viewport(0, 0, bw, bh);
+    gl.useProgram(pb.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, scene.tex);
+    u1i(pb, 'uSrc', 0); u2f(pb, 'uRes', bw, bh);
+    u1f(pb, 'uThresh', P_.thresh); u1f(pb, 'uKnee', P_.knee);
+    drawQuad();
+    const r = P_.radius;
+    const chain = [[b0, b1, r, 0], [b1, b2, 0, r], [b2, b3, r * 2.7, 0], [b3, b1, 0, r * 2.7]];
+    gl.useProgram(pblur.p); u1i(pblur, 'uSrc', 0);
+    for (const [src, dst, dx, dy] of chain) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fb); gl.viewport(0, 0, bw, bh);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.tex);
+      u2f(pblur, 'uRes', bw, bh); u2f(pblur, 'uDir', dx, dy);
+      drawQuad();
+    }
+    // b2 holds the first blur level, b1 the wide one
+  }
+
+  /* ---- composite to the canvas ---- */
+  if (cvs.width !== W || cvs.height !== H) { cvs.width = W; cvs.height = H; }
+  const pc = makeProg('comp', VS_QUAD, FS_COMPOSITE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, W, H);
+  gl.useProgram(pc.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, scene.tex); u1i(pc, 'uScene', 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (P_.bloom > 0.0005 ? b2 : b0).tex); u1i(pc, 'uBloomA', 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, (P_.bloom > 0.0005 ? b1 : b0).tex); u1i(pc, 'uBloomB', 2);
+  u2f(pc, 'uRes', W, H);
+  u1f(pc, 'uBloom', P_.bloom); u1f(pc, 'uExposure', P_.exposure);
+  u1f(pc, 'uContrast', P_.contrast); u1f(pc, 'uSat', P_.sat); u1f(pc, 'uGammaC', P_.gamma);
+  u1f(pc, 'uVig', P_.vig); u1f(pc, 'uVigSoft', P_.vigSoft);
+  u1f(pc, 'uGrain', P_.grain); u1f(pc, 'uChroma', P_.chroma);
+  u1f(pc, 'uPosterize', P_.posterize); u1f(pc, 'uScan', P_.scan); u1f(pc, 'uScanFreq', P_.scanFreq);
+  const _N = totalFrames();
+  u1f(pc, 'uFrameIdx', ((Math.floor(t * _N + 1e-6) % _N) + _N) % _N);   // grain repeats with the loop
+  u1f(pc, 'uAlphaOut', alphaOn ? 1 : 0);
+  gl.activeTexture(gl.TEXTURE0);
+  drawQuad();
+  return true;
+}
+
+/* read the canvas back, flipped to top-down RGBA */
+let readBuf = null;
+function readFrame(W, H) {
+  const need = W * H * 4;
+  if (!readBuf || readBuf.length !== need) readBuf = new Uint8Array(need);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, readBuf);
+  const out = new Uint8Array(need);
+  const row = W * 4;
+  for (let y = 0; y < H; y++) {
+    out.set(readBuf.subarray((H - 1 - y) * row, (H - y) * row), y * row);
+  }
+  return out;
+}

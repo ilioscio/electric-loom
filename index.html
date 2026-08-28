@@ -1,0 +1,3540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Electric Loom &mdash; perfect-loop GIF forge</title>
+<style>
+:root{
+  --bg:#07070c; --bg2:#0c0d16; --panel:#11121d; --panel2:#171930;
+  --line:#242742; --line2:#33375c;
+  --txt:#e6e8f5; --dim:#8d92b5; --dim2:#5f6488;
+  --acc:#7af0ff; --acc2:#ff5de0; --acc3:#b47cff;
+  --ok:#5ef2a4; --warn:#ffc45e; --bad:#ff6b7d;
+  --r:8px; --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(1200px 700px at 12% -10%, #1b1040 0%, transparent 60%),
+    radial-gradient(900px 600px at 100% 0%, #05303a 0%, transparent 55%),
+    var(--bg);
+  color:var(--txt);
+  font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:none}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2a2e4d;border-radius:9px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#3b4070;background-clip:content-box;border:2px solid transparent}
+
+#app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+header{
+  display:flex;align-items:center;gap:14px;padding:0 14px;height:50px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#101226,#0a0b14);
+  position:relative;z-index:20;
+}
+header .logo{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:.14em;font-size:12px;text-transform:uppercase}
+header .logo .mark{
+  width:20px;height:20px;border-radius:5px;
+  background:conic-gradient(from 0deg,var(--acc),var(--acc3),var(--acc2),var(--warn),var(--acc));
+  box-shadow:0 0 14px -2px var(--acc3);animation:spin 9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+header .logo b{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+header .sub{color:var(--dim2);font-size:11px;letter-spacing:.04em}
+header .spacer{flex:1}
+
+main{display:grid;grid-template-columns:308px 1fr 306px;min-height:0}
+.col{min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.col.left{border-right:1px solid var(--line);background:linear-gradient(180deg,#0b0c16,#090a11)}
+.col.right{border-left:1px solid var(--line);background:linear-gradient(180deg,#0b0c16,#090a11)}
+.scroll{overflow-y:auto;overflow-x:hidden;flex:1;padding-bottom:24px}
+
+.sec{border-bottom:1px solid var(--line)}
+.sec>.head{
+  display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;user-select:none;
+  font-size:10.5px;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--dim);
+  background:#0d0e1a;
+}
+.sec>.head:hover{color:var(--txt)}
+.sec>.head .chev{margin-left:auto;transition:transform .16s;color:var(--dim2);font-size:10px}
+.sec>.head .tag{margin-left:auto;font-size:9px;color:var(--dim2);letter-spacing:.08em}
+.sec>.head .tag+.chev{margin-left:8px}
+.sec.closed>.head .chev{transform:rotate(-90deg)}
+.sec.closed>.body{display:none}
+.sec>.body{padding:10px 12px 13px}
+
+.row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.row:last-child{margin-bottom:0}
+label.lbl{font-size:11px;color:var(--dim);flex:0 0 auto}
+
+.ctl{margin-bottom:9px}
+.ctl:last-child{margin-bottom:0}
+.ctl .top{display:flex;align-items:baseline;gap:6px;margin-bottom:3px}
+.ctl .top .name{font-size:11px;color:var(--dim);letter-spacing:.02em;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctl .top .val{font:11px/1 var(--mono);color:var(--acc);flex:0 0 auto;
+  background:#0a1620;border:1px solid #1c3a45;border-radius:4px;padding:2.5px 5px;min-width:46px;text-align:right}
+.ctl .top .val.int{color:var(--acc3);background:#150f22;border-color:#33235c}
+.ctl input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;display:block}
+.ctl input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:3px;background:linear-gradient(90deg,var(--acc) var(--pct,0%),#20233c var(--pct,0%))}
+.ctl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:50%;background:#e9f7ff;border:2px solid #0b0d16;box-shadow:0 0 0 1px var(--acc),0 0 9px -1px var(--acc)}
+.ctl.isint input[type=range]::-webkit-slider-runnable-track{background:linear-gradient(90deg,var(--acc3) var(--pct,0%),#20233c var(--pct,0%))}
+.ctl.isint input[type=range]::-webkit-slider-thumb{box-shadow:0 0 0 1px var(--acc3),0 0 9px -1px var(--acc3)}
+.ctl .hint{font-size:10px;color:var(--dim2);margin-top:1px}
+
+input[type=number],input[type=text],select{
+  background:#0a0b14;border:1px solid var(--line);border-radius:6px;padding:5px 7px;
+  color:var(--txt);width:100%;outline:none;font-size:12px;
+}
+input[type=number]:focus,input[type=text]:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 2px #7af0ff22}
+select{cursor:pointer}
+input[type=color]{-webkit-appearance:none;appearance:none;border:none;background:none;width:26px;height:22px;padding:0;cursor:pointer;border-radius:5px;overflow:hidden;flex:0 0 auto}
+input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+input[type=color]::-webkit-color-swatch{border:1px solid #ffffff22;border-radius:5px}
+input[type=checkbox]{accent-color:var(--acc);width:14px;height:14px;cursor:pointer;flex:0 0 auto}
+
+.btn{
+  background:#181b2e;border:1px solid var(--line2);border-radius:6px;padding:6px 11px;font-size:11.5px;
+  letter-spacing:.03em;color:var(--txt);transition:.13s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;justify-content:center
+}
+.btn:hover{background:#20243f;border-color:#4a5088}
+.btn:active{transform:translateY(1px)}
+.btn.pri{background:linear-gradient(180deg,#1d5a68,#12414d);border-color:#2c8ea3;color:#dffbff;font-weight:600}
+.btn.pri:hover{background:linear-gradient(180deg,#25707f,#175260);border-color:#48c3dd;box-shadow:0 0 16px -4px var(--acc)}
+.btn.mag{background:linear-gradient(180deg,#5c1f57,#3d1439);border-color:#a03d93;color:#ffe4fa}
+.btn.mag:hover{box-shadow:0 0 16px -4px var(--acc2);border-color:#e05fd0}
+.btn.sm{padding:4px 8px;font-size:10.5px}
+.btn.wide{width:100%}
+.btn.danger{border-color:#5c2430;color:#ffc9d0}
+.btn.danger:hover{background:#3a1a22;border-color:#b8455a}
+.btn[disabled]{opacity:.4;pointer-events:none}
+.btngrid{display:grid;gap:6px}
+.btngrid.c2{grid-template-columns:1fr 1fr}
+.btngrid.c3{grid-template-columns:1fr 1fr 1fr}
+
+.gens{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.gen{
+  position:relative;border:1px solid var(--line);border-radius:7px;overflow:hidden;cursor:pointer;
+  background:#0a0b14;transition:.14s;padding:0;text-align:left;
+}
+.gen canvas{display:block;width:100%;height:44px;background:#000}
+.gen .nm{display:block;padding:4px 6px 5px;font-size:10px;letter-spacing:.04em;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gen:hover{border-color:#454a7d;transform:translateY(-1px)}
+.gen:hover .nm{color:var(--txt)}
+.gen.on{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 0 18px -6px var(--acc)}
+.gen.on .nm{color:var(--acc)}
+.gen .heavy{position:absolute;top:3px;right:3px;font-size:8px;background:#000a;color:var(--warn);padding:1px 4px;border-radius:3px;letter-spacing:.06em}
+
+#palBar{height:26px;border-radius:6px;border:1px solid var(--line);margin-bottom:8px;position:relative;overflow:hidden}
+.stopRow{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.stopRow input[type=range]{flex:1;-webkit-appearance:none;height:14px;background:transparent}
+.stopRow input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#20233c}
+.stopRow input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;margin-top:-3.5px;border-radius:50%;background:#cfd6ff;border:1px solid #0b0d16}
+.stopRow .pos{font:10px/1 var(--mono);color:var(--dim2);width:30px;text-align:right}
+.stopRow .x{color:var(--dim2);font-size:14px;line-height:1;padding:0 2px}
+.stopRow .x:hover{color:var(--bad)}
+.palPresets{display:grid;grid-template-columns:repeat(4,1fr);gap:5px 5px;margin-top:8px;margin-bottom:18px}
+.pp{height:22px;border-radius:5px;border:1px solid var(--line);cursor:pointer;position:relative}
+.pp:hover{border-color:var(--acc);transform:translateY(-1px)}
+.pp.on{box-shadow:0 0 0 1px var(--acc)}
+.pp span{position:absolute;left:-2px;right:-2px;bottom:-12px;font-size:8px;color:var(--dim2);text-align:center;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.stage{display:flex;flex-direction:column;min-width:0;min-height:0;background:linear-gradient(180deg,#08090f,#05060a)}
+.canvasWrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:16px;position:relative}
+#viewFrame{
+  position:relative;border-radius:10px;overflow:hidden;line-height:0;
+  box-shadow:0 0 0 1px #ffffff10,0 24px 70px -20px #000,0 0 60px -30px var(--acc3);
+  background:repeating-conic-gradient(#1a1c2a 0% 25%, #12141f 0% 50%) 0 0/18px 18px;
+  max-width:100%;max-height:100%;
+}
+#gl{display:block;max-width:100%;max-height:100%}
+#seamBadge{
+  position:absolute;top:10px;left:10px;background:#000000cc;
+  border:1px solid var(--line2);border-radius:6px;padding:4px 8px;font:10px/1.3 var(--mono);color:var(--dim);
+  pointer-events:none;opacity:0;transition:.2s;z-index:6
+}
+#seamBadge.show{opacity:1}
+#seamBadge.good{color:var(--ok);border-color:#1d5c3f}
+#seamBadge.bad{color:var(--bad);border-color:#5c2430}
+#overlayMsg{
+  position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;
+  background:#05060af2;z-index:5;text-align:center;padding:24px;line-height:1.5
+}
+#overlayMsg.show{display:flex}
+#overlayMsg .big{font-size:15px;letter-spacing:.05em}
+#overlayMsg .small{font:11px/1.6 var(--mono);color:var(--dim);max-width:460px}
+
+.transport{border-top:1px solid var(--line);background:#0a0b14;padding:9px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.transport .tbtn{width:30px;height:30px;border-radius:6px;border:1px solid var(--line2);background:#161930;display:grid;place-items:center;font-size:12px;flex:0 0 auto}
+.transport .tbtn:hover{background:#20243f;border-color:var(--acc);color:var(--acc)}
+.transport .tbtn.on{background:#12414d;border-color:var(--acc);color:var(--acc)}
+#scrub{flex:1;min-width:140px;-webkit-appearance:none;height:20px;background:transparent}
+#scrub::-webkit-slider-runnable-track{height:5px;border-radius:3px;background:linear-gradient(90deg,var(--acc2) var(--pct,0%),#20233c var(--pct,0%))}
+#scrub::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-4px;border-radius:3px;background:#fff;border:2px solid #0b0d16;box-shadow:0 0 0 1px var(--acc2),0 0 10px -1px var(--acc2)}
+.tstat{font:11px/1 var(--mono);color:var(--dim);white-space:nowrap}
+.tstat b{color:var(--txt);font-weight:600}
+.tstat .fps{color:var(--ok)}
+.tstat .fps.slow{color:var(--warn)}
+.tstat .fps.bad{color:var(--bad)}
+
+.field{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.field.c1{grid-template-columns:1fr}
+.field .f{display:flex;flex-direction:column;gap:3px;min-width:0}
+.field .f span{font-size:10px;color:var(--dim2);letter-spacing:.05em;text-transform:uppercase}
+.est{border:1px solid var(--line);border-radius:7px;padding:8px 10px;background:#0a0b14;margin:8px 0;font:11px/1.6 var(--mono);color:var(--dim)}
+.est div{display:flex;justify-content:space-between;gap:10px}
+.est b{color:var(--txt);font-weight:600}
+.est .w{color:var(--warn)}
+.est .b{color:var(--bad)}
+#prog{margin-top:10px;display:none}
+#prog.show{display:block}
+.bar{height:6px;border-radius:4px;background:#181b2e;overflow:hidden;margin:6px 0}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .12s}
+#progTxt{font:10.5px/1.5 var(--mono);color:var(--dim);white-space:pre-wrap;word-break:break-word}
+#outList{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.outItem{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:7px;padding:7px 9px;background:#0c1520}
+.outItem .k{font:10px/1 var(--mono);padding:2px 5px;border-radius:4px;background:#12414d;color:var(--acc);flex:0 0 auto}
+.outItem .n{flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.outItem .s{font:10px/1 var(--mono);color:var(--dim2);flex:0 0 auto}
+
+.note{font-size:10.5px;line-height:1.5;color:var(--dim2);margin-top:7px}
+.note b{color:var(--dim)}
+.warnbox{border:1px solid #5c4a24;background:#221a0d;border-radius:6px;padding:7px 9px;font-size:10.5px;line-height:1.5;color:var(--warn);margin-top:8px}
+.badbox{border:1px solid #5c2430;background:#220d12;border-radius:6px;padding:7px 9px;font-size:10.5px;line-height:1.5;color:var(--bad);margin-top:8px}
+.okbox{border:1px solid #1d5c3f;background:#0c2219;border-radius:6px;padding:7px 9px;font-size:10.5px;line-height:1.5;color:var(--ok);margin-top:8px}
+.kbd{font:10px/1 var(--mono);background:#181b2e;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;padding:2px 4px;color:var(--dim)}
+.seedRow{display:flex;gap:6px}
+.seedRow input{flex:1;font-family:var(--mono);font-size:11px}
+hr.sp{border:none;border-top:1px solid var(--line);margin:11px 0}
+.pillrow{display:flex;gap:5px;flex-wrap:wrap}
+.pill{border:1px solid var(--line2);background:#141729;border-radius:20px;padding:3px 9px;font-size:10.5px;color:var(--dim)}
+.pill.on{border-color:var(--acc);color:var(--acc);background:#0d2630}
+.pill:hover{color:var(--txt)}
+#toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);background:#12142a;border:1px solid var(--line2);
+  border-radius:8px;padding:9px 15px;font-size:12px;opacity:0;pointer-events:none;transition:.25s;z-index:99;box-shadow:0 12px 40px -10px #000;max-width:70vw}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+@media (max-width:1240px){ main{grid-template-columns:270px 1fr 272px} }
+@media (max-width:1040px){
+  body{overflow:auto}
+  #app{height:auto;min-height:100vh}
+  main{grid-template-columns:1fr}
+  .col.left,.col.right{border:none;border-top:1px solid var(--line)}
+  .canvasWrap{min-height:46vh}
+  .scroll{overflow:visible}
+}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <div class="logo"><span class="mark"></span><span>Electric&nbsp;<b>Loom</b></span></div>
+  <span class="sub" id="hdrSub">perfect-loop generator</span>
+  <span class="spacer"></span>
+  <button class="btn sm" id="btnRandom" title="Randomize everything (R)">Randomize</button>
+  <button class="btn sm" id="btnRandParams" title="Randomize parameters only, keep generator + palette">Reroll params</button>
+  <button class="btn sm" id="btnCopyLink" title="Copy a link that reproduces this exact look">Copy link</button>
+  <button class="btn sm" id="btnHelp">?</button>
+</header>
+
+<main>
+  <!-- ================= LEFT ================= -->
+  <div class="col left">
+   <div class="scroll">
+
+    <div class="sec" data-sec="gens">
+      <div class="head">Pattern <span class="tag" id="genTag"></span><span class="chev">&#9662;</span></div>
+      <div class="body"><div class="gens" id="gens"></div></div>
+    </div>
+
+    <div class="sec" data-sec="params">
+      <div class="head">Pattern controls<span class="chev">&#9662;</span></div>
+      <div class="body" id="params"></div>
+    </div>
+
+    <div class="sec" data-sec="frame">
+      <div class="head">Framing &amp; symmetry<span class="chev">&#9662;</span></div>
+      <div class="body" id="frameCtls"></div>
+    </div>
+
+    <div class="sec" data-sec="pal">
+      <div class="head">Palette<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div id="palBar"></div>
+        <div id="stops"></div>
+        <div class="btngrid c3" style="margin-top:7px">
+          <button class="btn sm" id="btnAddStop">+ stop</button>
+          <button class="btn sm" id="btnRevPal">Reverse</button>
+          <button class="btn sm" id="btnRandPal">Random</button>
+        </div>
+        <hr class="sp">
+        <div class="row">
+          <label class="lbl" style="flex:1">Blend space</label>
+          <select id="palSpace" style="width:118px">
+            <option value="oklab">OKLab (smooth)</option>
+            <option value="srgb">sRGB (raw)</option>
+            <option value="hsl">HSL (rainbow)</option>
+          </select>
+        </div>
+        <div id="palExtra"></div>
+        <div class="palPresets" id="palPresets"></div>
+      </div>
+    </div>
+
+    <div class="sec closed" data-sec="post">
+      <div class="head">Grade &amp; glow<span class="chev">&#9662;</span></div>
+      <div class="body" id="postCtls"></div>
+    </div>
+
+    <div class="sec closed" data-sec="presets">
+      <div class="head">Saved looks<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="row">
+          <input type="text" id="presetName" placeholder="name this look">
+          <button class="btn sm" id="btnSavePreset">Save</button>
+        </div>
+        <div id="presetList" style="margin-top:8px"></div>
+        <hr class="sp">
+        <div class="btngrid c2">
+          <button class="btn sm" id="btnExportJson">Export .json</button>
+          <button class="btn sm" id="btnImportJson">Import .json</button>
+        </div>
+        <input type="file" id="fileJson" accept="application/json,.json" style="display:none">
+      </div>
+    </div>
+
+   </div>
+  </div>
+
+  <!-- ================= CENTER ================= -->
+  <div class="col stage">
+    <div class="canvasWrap">
+      <div id="viewFrame">
+        <canvas id="gl"></canvas>
+        <div id="seamBadge"></div>
+        <div id="overlayMsg"><div class="big" id="ovBig"></div><div class="small" id="ovSmall"></div></div>
+      </div>
+    </div>
+    <div class="transport">
+      <button class="tbtn" id="btnPlay" title="Play / pause (Space)">&#9654;</button>
+      <button class="tbtn" id="btnSeam" title="Seam check: flips between the last frame and the first">&#8644;</button>
+      <input type="range" id="scrub" min="0" max="1000" value="0">
+      <span class="tstat" id="tStat">frame <b>0</b>/0</span>
+      <span class="tstat">fps <b class="fps" id="fpsStat">--</b></span>
+      <button class="btn sm" id="btnVerify" title="Render t=0 and t=1 at full output size and compare pixel by pixel">Verify loop</button>
+      <select id="previewQ" style="width:96px" title="Preview render size">
+        <option value="0.5">Preview 50%</option>
+        <option value="0.75">Preview 75%</option>
+        <option value="1" selected>Preview 100%</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ================= RIGHT ================= -->
+  <div class="col right">
+   <div class="scroll">
+
+    <div class="sec" data-sec="out">
+      <div class="head">Output<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="field c1">
+          <div class="f"><span>Size preset</span>
+            <select id="sizePreset"></select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="f"><span>Width</span><input type="number" id="outW" min="16" max="4096" step="2" value="1280"></div>
+          <div class="f"><span>Height</span><input type="number" id="outH" min="16" max="4096" step="2" value="720"></div>
+        </div>
+        <div class="field">
+          <div class="f"><span>Duration (s)</span><input type="number" id="outDur" min="0.5" max="15" step="0.5" value="4"></div>
+          <div class="f"><span>FPS</span>
+            <select id="outFps">
+              <option>10</option><option>12</option><option>15</option><option>20</option>
+              <option selected>24</option><option>25</option><option>30</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="f"><span>Supersample</span>
+            <select id="outSS"><option value="1">Off (fast)</option><option value="2" selected>2x (smooth)</option></select>
+          </div>
+          <div class="f"><span>Background</span>
+            <select id="bgMode"><option value="opaque" selected>Opaque</option><option value="alpha">Alpha from brightness</option></select>
+          </div>
+        </div>
+        <div id="alphaCtls" style="display:none"></div>
+        <div class="est" id="est"></div>
+      </div>
+    </div>
+
+    <div class="sec" data-sec="gifset">
+      <div class="head">GIF settings<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="field">
+          <div class="f"><span>Colors</span>
+            <select id="gifColors">
+              <option>256</option><option>192</option><option>128</option><option>96</option>
+              <option>64</option><option>48</option><option>32</option><option>16</option><option>8</option>
+            </select>
+          </div>
+          <div class="f"><span>Dither</span>
+            <select id="gifDither">
+              <option value="fs" selected>Floyd&ndash;Steinberg</option>
+              <option value="sierra">Sierra Lite</option>
+              <option value="atkinson">Atkinson</option>
+              <option value="bayer8">Ordered 8x8</option>
+              <option value="bayer4">Ordered 4x4</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+        </div>
+        <div id="ditherStrCtl"></div>
+        <div class="row" style="margin-top:6px">
+          <input type="checkbox" id="gifSharpPal" checked>
+          <label class="lbl" for="gifSharpPal" style="flex:1">Refine palette (k&#8209;means)</label>
+        </div>
+        <div class="note">One global palette is built from frames sampled across the whole loop, so colors never shift or flicker between frames.</div>
+      </div>
+    </div>
+
+    <div class="sec" data-sec="vidset">
+      <div class="head">WebM settings<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="field">
+          <div class="f"><span>Codec</span><select id="vidCodec"></select></div>
+          <div class="f"><span>Quality</span>
+            <select id="vidQ">
+              <option value="0.06">Draft</option>
+              <option value="0.12">Good</option>
+              <option value="0.22" selected>High</option>
+              <option value="0.40">Very high</option>
+              <option value="0.75">Near lossless</option>
+            </select>
+          </div>
+        </div>
+        <div id="vidInfo" class="note"></div>
+      </div>
+    </div>
+
+    <div class="sec" data-sec="export">
+      <div class="head">Export<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="btngrid" style="grid-template-columns:1fr">
+          <button class="btn pri wide" id="btnGif">Render GIF</button>
+        </div>
+        <div class="btngrid c2" style="margin-top:6px">
+          <button class="btn mag" id="btnWebm">Render WebM</button>
+          <button class="btn" id="btnPngs">PNG frames .zip</button>
+        </div>
+        <button class="btn danger wide" id="btnCancel" style="margin-top:6px;display:none">Cancel</button>
+        <div id="prog">
+          <div class="bar"><i id="progBar"></i></div>
+          <div id="progTxt"></div>
+        </div>
+        <div id="outList"></div>
+      </div>
+    </div>
+
+    <div class="sec closed" data-sec="obs">
+      <div class="head">OBS notes<span class="chev">&#9662;</span></div>
+      <div class="body">
+        <div class="note" style="font-size:11px;line-height:1.65">
+          <b>Media Source</b> is the one to use for both GIF and WebM. Tick <b>Loop</b>, untick
+          <b>Restart playback when source becomes active</b> so it never hitches on scene changes,
+          and leave <b>Close file when inactive</b> off.<br><br>
+          <b>WebM beats GIF</b> for a full-screen background: full color, no banding, and roughly
+          10&ndash;40x smaller. Keep the GIF for browser sources, chat overlays and anywhere that
+          only eats images.<br><br>
+          <b>Alpha</b> works properly in the PNG frame sequence. GIF alpha is 1&#8209;bit (hard edges).
+          WebM alpha is not written here, so use PNG frames for a cut-out overlay.<br><br>
+          <b>Sizing:</b> these patterns are all smooth, so a 1280x720 file scaled up to 1080p in OBS
+          looks near identical and encodes several times faster.
+        </div>
+      </div>
+    </div>
+
+   </div>
+  </div>
+</main>
+</div>
+<div id="toast"></div>
+<script>
+"use strict";
+/* =====================================================================
+   Electric Loom - a self-contained perfect-loop animation forge.
+   No network, no dependencies. Everything below is written from scratch:
+   the WebGL2 generators, the palette engine, the GIF quantizer + LZW
+   encoder, the WebM (Matroska) muxer, and the ZIP writer.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------- tiny dom */
+const $  = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp  = (a, b, t) => a + (b - a) * t;
+const TAU = Math.PI * 2;
+
+let toastTimer = 0;
+function toast(msg, ms) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms || 2400);
+}
+function fmtBytes(n) {
+  if (!isFinite(n)) return '--';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+  return (n / 1073741824).toFixed(2) + ' GB';
+}
+function fmtTime(s) {
+  if (!isFinite(s) || s < 0) return '--';
+  s = Math.round(s);
+  const m = Math.floor(s / 60);
+  return m > 0 ? m + 'm ' + String(s % 60).padStart(2, '0') + 's' : s + 's';
+}
+
+/* ------------------------------------------------------------ seeded rng */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h >>> 0;
+}
+function randSeedWord() {
+  const a = ['aur','vex','lum','zar','nyx','pho','sol','tri','quo','hex','vor','ely','kry','oni','pyr','umb','cel','dra','ith','oma'];
+  const b = ['ora','ith','ane','yss','eon','ura','ix','olt','ade','umi','ess','arn','ovo','ymn','ael','usk'];
+  const r = Math.random;
+  return a[(r() * a.length) | 0] + b[(r() * b.length) | 0] + ((r() * 900 + 100) | 0);
+}
+
+/* ---------------------------------------------------------------- colour */
+function hex2rgb(h) {
+  h = h.replace('#', '');
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const n = parseInt(h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgb2hex(r, g, b) {
+  const c = v => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0');
+  return '#' + c(r) + c(g) + c(b);
+}
+/* sRGB <-> linear */
+const s2l = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const l2s = c => { c = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(Math.max(c, 0), 1 / 2.4) - 0.055; return clamp(c * 255, 0, 255); };
+
+/* sRGB (0-255) -> OKLab */
+function rgb2oklab(r, g, b) {
+  const R = s2l(r), G = s2l(g), B = s2l(b);
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+  ];
+}
+function oklab2rgb(L, a, bb) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * bb;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * bb;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * bb;
+  const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+  return [
+    l2s(+4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    l2s(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    l2s(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)
+  ];
+}
+function rgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0; const l = (mx + mn) / 2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (d !== 0) {
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6; if (h < 0) h += 1;
+  }
+  return [h, s, l];
+}
+function hsl2rgb(h, s, l) {
+  h = ((h % 1) + 1) % 1;
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h * 6) % 2 - 1)), m = l - c / 2;
+  let r = 0, g = 0, b = 0; const seg = Math.floor(h * 6);
+  if (seg === 0) { r = c; g = x; } else if (seg === 1) { r = x; g = c; }
+  else if (seg === 2) { g = c; b = x; } else if (seg === 3) { g = x; b = c; }
+  else if (seg === 4) { r = x; b = c; } else { r = c; b = x; }
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+}
+
+/* ---------------------------------------------------------- palette bank */
+/* Cyclic gradients. The last stop wraps around to the first, which is what
+   lets a palette rotation be an exact loop. */
+const PAL_PRESETS = [
+  { n: 'Electric Sheep', s: ['#05010f', '#3b1b8f', '#00e5ff', '#f7ffb0', '#ff2fb9', '#7a0f6b'] },
+  { n: 'Aurora',         s: ['#020814', '#0b4f6c', '#01baef', '#7ae582', '#d9fff5', '#1b3a6b'] },
+  { n: 'Magma',          s: ['#04010a', '#4a0b3a', '#c81d4e', '#ff8f2b', '#ffe6a3', '#5c1030'] },
+  { n: 'Vaporwave',      s: ['#2b0a3d', '#ff2a6d', '#ffd166', '#05d9e8', '#7a06ff', '#3a0a5c'] },
+  { n: 'Oil Slick',      s: ['#0a0a12', '#1f6f8b', '#99d3ff', '#ffb3f0', '#8a4fff', '#122040'] },
+  { n: 'Infrared',       s: ['#000012', '#22007a', '#c700a8', '#ff5b2e', '#ffe74c', '#7a0044'] },
+  { n: 'Toxic',          s: ['#040a03', '#1d4f1f', '#7fff4d', '#e8ff7a', '#00d4a0', '#0d2b33'] },
+  { n: 'Deep Sea',       s: ['#000308', '#032a4a', '#0a6b8f', '#3fd0d4', '#bff7ff', '#04122b'] },
+  { n: 'Candy Chrome',   s: ['#ffffff', '#ff9ad5', '#8f7bff', '#5ce1ff', '#c6ffe6', '#ffd4a3'] },
+  { n: 'Ember',          s: ['#0b0603', '#3d1002', '#a32a06', '#ff7a18', '#ffd08a', '#2a0a05'] },
+  { n: 'Ultraviolet',    s: ['#06001a', '#3a0ca3', '#7209b7', '#f72585', '#4cc9f0', '#12043a'] },
+  { n: 'Chlorophyll',    s: ['#03120a', '#0b6e4f', '#3ddc84', '#d9ff6b', '#087f8c', '#062822'] },
+  { n: 'Neon Noir',      s: ['#05060a', '#141b3d', '#00fff0', '#ff0080', '#2a0a4a', '#0a1030'] },
+  { n: 'Peach Dream',    s: ['#2a1436', '#a24f7a', '#ff9e7d', '#ffe6b3', '#94d3ff', '#5b2f6b'] },
+  { n: 'Monochrome',     s: ['#000000', '#3a3a3a', '#8a8a8a', '#e8e8e8', '#8a8a8a', '#3a3a3a'] },
+  { n: 'Prism',          s: ['#ff0040', '#ff9500', '#ffee00', '#37ff2a', '#00c8ff', '#8a2be2'] },
+  { n: 'Cyanotype',      s: ['#01060f', '#062c52', '#0f6ba8', '#57b8ff', '#d6f0ff', '#052440'] },
+  { n: 'Rust & Teal',    s: ['#0d0a08', '#3b2117', '#a8471f', '#e8c39e', '#2f8f8f', '#123033'] },
+  { n: 'Bubblegum',      s: ['#3b0a45', '#c31fa8', '#ff6ec7', '#ffd6f5', '#6ee7ff', '#7a1b9c'] },
+  { n: 'Void Gold',      s: ['#000000', '#1a1206', '#6b4a0a', '#d4a017', '#ffe9a8', '#2a1a06'] }
+];
+
+/* Build a 512-entry cyclic LUT from stops, blending in the chosen space. */
+const LUT_N = 512;
+function buildLut(stops, space) {
+  const n = stops.length;
+  const S = stops.slice().sort((a, b) => a.p - b.p);
+  const out = new Uint8Array(LUT_N * 4);
+  if (n === 0) return out;
+  if (n === 1) {
+    const c = hex2rgb(S[0].c);
+    for (let i = 0; i < LUT_N; i++) { out[i * 4] = c[0]; out[i * 4 + 1] = c[1]; out[i * 4 + 2] = c[2]; out[i * 4 + 3] = 255; }
+    return out;
+  }
+  const conv = space === 'oklab' ? (c => rgb2oklab(c[0], c[1], c[2]))
+             : space === 'hsl'   ? (c => rgb2hsl(c[0], c[1], c[2]))
+             : (c => c);
+  const back = space === 'oklab' ? (v => oklab2rgb(v[0], v[1], v[2]))
+             : space === 'hsl'   ? (v => hsl2rgb(v[0], v[1], v[2]))
+             : (v => v);
+  const V = S.map(s => conv(hex2rgb(s.c)));
+  // HSL needs shortest-arc hue unwrapping so a rainbow does not run backwards
+  if (space === 'hsl') {
+    for (let i = 1; i < V.length; i++) {
+      let d = V[i][0] - V[i - 1][0];
+      if (d > 0.5) V[i][0] -= 1; else if (d < -0.5) V[i][0] += 1;
+    }
+  }
+  for (let i = 0; i < LUT_N; i++) {
+    const t = i / LUT_N;
+    let k = 0;
+    while (k < n - 1 && S[k + 1].p <= t) k++;
+    let a, b, va, vb, f;
+    if (t < S[0].p) {           // wrap segment: last -> first
+      a = S[n - 1].p - 1; b = S[0].p; va = V[n - 1]; vb = V[0];
+    } else if (k === n - 1) {
+      a = S[n - 1].p; b = S[0].p + 1; va = V[n - 1]; vb = V[0];
+    } else {
+      a = S[k].p; b = S[k + 1].p; va = V[k]; vb = V[k + 1];
+    }
+    f = b - a < 1e-9 ? 0 : (t - a) / (b - a);
+    f = clamp(f, 0, 1);
+    let vv;
+    if (space === 'hsl') {
+      let h0 = va[0], h1 = vb[0], d = h1 - h0;
+      if (d > 0.5) h1 -= 1; else if (d < -0.5) h1 += 1;
+      vv = [lerp(h0, h1, f), lerp(va[1], vb[1], f), lerp(va[2], vb[2], f)];
+    } else {
+      vv = [lerp(va[0], vb[0], f), lerp(va[1], vb[1], f), lerp(va[2], vb[2], f)];
+    }
+    const rgb = back(vv);
+    out[i * 4]     = clamp(Math.round(rgb[0]), 0, 255);
+    out[i * 4 + 1] = clamp(Math.round(rgb[1]), 0, 255);
+    out[i * 4 + 2] = clamp(Math.round(rgb[2]), 0, 255);
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
+function lutCss(lut) {
+  const parts = [];
+  for (let i = 0; i <= 32; i++) {
+    const j = Math.min(LUT_N - 1, Math.round(i / 32 * LUT_N)) * 4;
+    parts.push(rgb2hex(lut[j], lut[j + 1], lut[j + 2]) + ' ' + (i / 32 * 100).toFixed(1) + '%');
+  }
+  return 'linear-gradient(90deg,' + parts.join(',') + ')';
+}
+function randomPalette(rnd) {
+  rnd = rnd || Math.random;
+  const n = 4 + ((rnd() * 3) | 0);
+  const baseH = rnd();
+  const mode = (rnd() * 3) | 0;                 // 0 analogous 1 triad 2 free
+  const stops = [];
+  for (let i = 0; i < n; i++) {
+    let h;
+    if (mode === 0) h = baseH + (i / n) * 0.30 * (rnd() < 0.5 ? 1 : -1);
+    else if (mode === 1) h = baseH + (i % 3) / 3 + rnd() * 0.06;
+    else h = rnd();
+    const t = i / (n - 1);
+    const s = 0.45 + rnd() * 0.55;
+    const l = clamp(0.06 + Math.pow(t, 0.85) * 0.82 + (rnd() - 0.5) * 0.18, 0.03, 0.97);
+    const c = hsl2rgb(h, s, l);
+    stops.push({ p: i / n, c: rgb2hex(c[0], c[1], c[2]) });
+  }
+  if (rnd() < 0.5) stops[0].c = '#04030a';
+  return stops;
+}
+/* =====================================================================
+   SHADERS
+   ---------------------------------------------------------------------
+   THE LOOP RULE, obeyed by every generator below:
+   time enters only as TA = 2*PI*T with T in [0,1), and every coefficient
+   multiplying TA is an integer (floor()ed in the shader, integer-stepped
+   in the UI). Anything periodic in 2*PI is therefore bit-identical at
+   T=0 and T=1. Scrolling fields are additionally locked to a whole
+   number of tiles per loop. No cross-fades, no cheats.
+   ===================================================================== */
+
+const GLSL_PRELUDE = `#version 300 es
+precision highp float;
+precision highp int;
+out vec4 O;
+uniform vec2  uRes;
+uniform float uT;
+uniform float uSeed;
+uniform sampler2D uPal;
+uniform float uP[16];
+uniform float uZoom, uRot, uMirror, uMirrorRot, uPalRot;
+uniform vec2  uPan;
+uniform float uAlphaMode, uAlphaGain, uAlphaBias;
+const float PI  = 3.141592653589793;
+const float TAU = 6.283185307179586;
+#define T uT
+#define TA (TAU*uT)
+
+vec3 pal(float x){ return texture(uPal, vec2(x + uPalRot, 0.5)).rgb; }
+
+float h11(float p){ p=fract(p*0.1031); p*=p+33.33; p*=p+p; return fract(p); }
+float h12(vec2 p){ vec3 p3=fract(vec3(p.xyx)*0.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
+vec2  h22(vec2 p){ vec3 p3=fract(vec3(p.xyx)*vec3(0.1031,0.1030,0.0973)); p3+=dot(p3,p3.yzx+33.33); return fract((p3.xx+p3.yz)*p3.zy); }
+float h13(vec3 p3){ p3=fract(p3*0.1031); p3+=dot(p3,p3.zyx+31.32); return fract((p3.x+p3.y)*p3.z); }
+float h14(vec4 p4){ p4=fract(p4*vec4(0.1031,0.1030,0.0973,0.1099)); p4+=dot(p4,p4.wzxy+33.33); return fract((p4.x+p4.y)*(p4.z+p4.w)); }
+
+float vn2(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(h12(i),h12(i+vec2(1,0)),f.x), mix(h12(i+vec2(0,1)),h12(i+vec2(1,1)),f.x), f.y);
+}
+float vn3(vec3 p){
+  vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=mix(mix(h13(i),h13(i+vec3(1,0,0)),f.x), mix(h13(i+vec3(0,1,0)),h13(i+vec3(1,1,0)),f.x), f.y);
+  float b=mix(mix(h13(i+vec3(0,0,1)),h13(i+vec3(1,0,1)),f.x), mix(h13(i+vec3(0,1,1)),h13(i+vec3(1,1,1)),f.x), f.y);
+  return mix(a,b,f.z);
+}
+float vn4(vec4 p){
+  vec4 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float r=0.0;
+  for(int a=0;a<2;a++)for(int b=0;b<2;b++)for(int c=0;c<2;c++)for(int d=0;d<2;d++){
+    vec4 o=vec4(float(a),float(b),float(c),float(d));
+    float w=mix(1.0-f.x,f.x,o.x)*mix(1.0-f.y,f.y,o.y)*mix(1.0-f.z,f.z,o.z)*mix(1.0-f.w,f.w,o.w);
+    r+=w*h14(i+o);
+  }
+  return r;
+}
+float fbm2(vec2 p,int oct){
+  float a=0.5,s=0.0,n=0.0;
+  for(int i=0;i<8;i++){ if(i>=oct) break; s+=a*vn2(p); n+=a; p=p*2.03+vec2(1.7,9.2); a*=0.5; }
+  return s/max(n,1e-5);
+}
+float fbm4(vec4 p,int oct){
+  float a=0.5,s=0.0,n=0.0;
+  for(int i=0;i<5;i++){ if(i>=oct) break; s+=a*vn4(p); n+=a; p=p*2.03+vec4(1.7,9.2,4.1,7.3); a*=0.5; }
+  return s/max(n,1e-5);
+}
+vec2 rot(vec2 p,float a){ float c=cos(a),s=sin(a); return vec2(c*p.x-s*p.y, s*p.x+c*p.y); }
+
+/* Integer modulo that survives the drivers.
+   GLSL mod(x,y) is x - y*floor(x/y), and several drivers evaluate x/y as
+   x*(1/y). With y=6 the reciprocal rounds down, floor(6*0.16666666) is 0,
+   and mod(6.0,6.0) hands back 6.0 instead of 0. Any tile index that scrolls
+   by a whole period per loop lands on exactly that case at the seam, so it
+   has to be computed without trusting the division. Both arguments here are
+   integer valued and at least 1/16 apart from a false floor, so the nudge is
+   safe by a wide margin. */
+vec2 imod(vec2 v,float per){ return v - per*floor(v/per + 1e-3); }
+
+vec4 hexCell(vec2 p){
+  vec2 s=vec2(1.0,1.7320508), h=s*0.5;
+  vec2 a=mod(p,s)-h, b=mod(p-h,s)-h;
+  vec2 gv = dot(a,a)<dot(b,b) ? a : b;
+  return vec4(gv, p-gv);
+}
+float hexDist(vec2 p){ p=abs(p); return max(dot(p,normalize(vec2(1.0,1.7320508))), p.x); }
+
+vec2 kal(vec2 p,float n){
+  if(n<1.5) return p;
+  float r=length(p);
+  float a=atan(p.y,p.x)-uMirrorRot;
+  float seg=TAU/n;
+  a=mod(a,seg);
+  a=abs(a-seg*0.5);
+  a+=uMirrorRot;
+  return vec2(cos(a),sin(a))*r;
+}
+vec2 uvBase(){
+  vec2 uv=(gl_FragCoord.xy-0.5*uRes)/min(uRes.x,uRes.y);
+  uv=kal(uv,uMirror);
+  uv=rot(uv,uRot);
+  return uv*uZoom+uPan;
+}
+`;
+
+const GLSL_MAIN = `
+void main(){
+  vec3 c = field(uvBase());
+  c = max(c, 0.0);
+  float a = 1.0;
+  if(uAlphaMode > 0.5){
+    float l = dot(c, vec3(0.2126,0.7152,0.0722));
+    a = clamp((l - uAlphaBias) * uAlphaGain, 0.0, 1.0);
+  }
+  O = vec4(c, a);
+}
+`;
+
+/* ------------------------------------------------------------------ */
+/* param helper: p(index, key, label, min, max, default, step, isInt)  */
+const P  = (i, k, n, mn, mx, d, st) => ({ i, k, n, mn, mx, d, st: st || 0.001 });
+const PI_= (i, k, n, mn, mx, d) => ({ i, k, n, mn, mx, d, st: 1, int: true });
+
+const GENS = [
+{
+  id:'plasma', name:'Plasma Bloom',
+  params:[ P(0,'scale','Scale',0.5,20,4.2,0.01), P(1,'warp','Warp',0,3,0.85,0.01),
+           P(2,'bands','Colour bands',0.2,6,1.0,0.01), PI_(3,'ca','Drift A x/loop',0,8,1),
+           PI_(4,'cb','Drift B x/loop',0,8,1), P(5,'grit','Grain field',0,1,0.22,0.005),
+           P(6,'gs','Grain scale',0.3,8,2.1,0.01), P(7,'shift','Colour shift',0,1,0,0.001) ],
+  body:`
+vec3 field(vec2 uv){
+  float k1=floor(uP[3]), k2=floor(uP[4]);
+  vec2 p=uv*uP[0];
+  p += uP[1]*vec2(sin(p.y*1.7+TA*k1), cos(p.x*1.3-TA*k2));
+  float v = sin(p.x+TA*k1) + sin(p.y*1.13-TA*k2) + sin((p.x+p.y)*0.71+TA*k1) + sin(length(p)*0.93-TA*k2);
+  v *= 0.25;
+  v += uP[5]*(vn2(p*uP[6]+vec2(cos(TA*k1),sin(TA*k1))*2.0)-0.5);
+  return pal(v*uP[2]+uP[7]);
+}`
+},
+{
+  id:'warp', name:'Domain Warp',
+  params:[ P(0,'scale','Scale',0.3,8,1.7,0.01), PI_(1,'cyc','Churn x/loop',1,6,1),
+           P(2,'amt','Churn radius',0.05,3,0.75,0.01), PI_(3,'oct','Octaves',1,7,5),
+           P(4,'w','Warp strength',0.5,8,3.4,0.01), P(5,'ridge','Ridged',0,1,0.25,0.005),
+           P(6,'con','Colour range',0.2,6,1.6,0.01), P(7,'tint','Warp tint',0,1.5,0.35,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float k=floor(uP[1]);
+  vec2 ph=vec2(cos(TA*k),sin(TA*k))*uP[2];
+  vec2 p=uv*uP[0];
+  int oc=int(uP[3]);
+  vec2 q=vec2(fbm2(p+ph,oc), fbm2(p+vec2(5.2,1.3)-ph,oc));
+  vec2 r=vec2(fbm2(p+uP[4]*q+ph.yx*1.3+vec2(1.7,9.2),oc), fbm2(p+uP[4]*q-ph.yx*1.3+vec2(8.3,2.8),oc));
+  float f=fbm2(p+uP[4]*r,oc);
+  f=mix(f, 1.0-abs(f*2.0-1.0), uP[5]);
+  f=clamp((f-0.5)*2.6+0.5, 0.0, 1.0);   /* fbm hugs 0.5; open it out */
+  return pal(f*uP[6]+dot(r,vec2(uP[7])));
+}`
+},
+{
+  id:'mandala', name:'Mandala',
+  params:[ P(0,'rings','Rings',0.2,12,2.6,0.01), PI_(1,'pet','Petals',2,32,8),
+           P(2,'twist','Twist',-4,4,1.1,0.01), PI_(3,'spin','Spin x/loop',0,6,1),
+           P(4,'glow','Edge glow',0,3,1.3,0.01), P(5,'rad','Radial colour',-3,3,0.9,0.01),
+           P(6,'thick','Edge width',0.02,1,0.35,0.005), P(7,'base','Base level',0,1,0.22,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float r=length(uv), a=atan(uv.y,uv.x);
+  float pt=floor(uP[1]), sp=floor(uP[3]);
+  float w=sin(a*pt + r*uP[2]*TAU + TA*sp);
+  float g=sin(r*uP[0]*TAU - TA*sp);
+  float f=w*g;
+  float e=smoothstep(uP[6],0.0,abs(f));
+  vec3 c=pal(f*0.5+0.5+r*uP[5]);
+  return c*(uP[7]+e*uP[4]);
+}`
+},
+{
+  id:'tunnel', name:'Hypertunnel',
+  params:[ P(0,'depth','Depth',0.05,2,0.34,0.005), PI_(1,'fly','Fly x/loop',1,8,2),
+           PI_(2,'twist','Twist',-4,4,1), PI_(3,'rings','Rings',1,24,6),
+           PI_(4,'stripes','Stripes',1,32,8), P(5,'mix','Pattern mix',0,1,0.6,0.005),
+           PI_(6,'spin','Spin x/loop',0,4,1), P(7,'core','Dark core',0.0,0.6,0.06,0.002),
+           P(8,'gain','Gain',0.3,3,1.25,0.01) ],
+  body:`
+vec3 field(vec2 uv){
+  float r=max(length(uv),1e-3), a=atan(uv.y,uv.x);
+  float z=uP[0]/r + T*floor(uP[1]);
+  float tw=floor(uP[2]);
+  float ang=a/TAU + tw*z + T*floor(uP[6]);
+  float rings=0.5+0.5*sin(z*TAU*floor(uP[3]));
+  float stripes=0.5+0.5*sin(ang*TAU*floor(uP[4]));
+  float m=mix(1.0, (rings*stripes)*3.4-0.35, uP[5]);
+  vec3 c=pal(z);
+  c*=clamp(m,0.0,4.0)*uP[8];
+  c*=smoothstep(0.0,uP[7]+1e-3,r);
+  return c;
+}`
+},
+{
+  id:'ribbons', name:'Flow Ribbons',
+  params:[ P(0,'scale','Scale',0.5,12,3.2,0.01), PI_(1,'cyc','Flow x/loop',1,6,1),
+           P(2,'amt','Flow radius',0.05,3,0.9,0.01), PI_(3,'lay','Layers',1,5,4),
+           P(4,'ns','Noise scale',0.1,3,0.55,0.005), P(5,'nw','Noise warp',0,4,1.5,0.01),
+           P(6,'freq','Ribbon count',0.2,8,1.6,0.01), P(7,'soft','Edge softness',0.02,0.5,0.19,0.002),
+           P(8,'floor','Floor',0,1,0.18,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float k=floor(uP[1]);
+  vec2 ph=vec2(cos(TA*k),sin(TA*k))*uP[2];
+  vec2 p=uv*uP[0];
+  float w=0.0, wn=0.0;
+  for(int i=0;i<5;i++){
+    float fi=float(i); if(fi>=uP[3]) break;
+    vec2 q=p+ph*(1.0+fi*0.35)+vec2(fi*7.31, fi*3.17);
+    float amp=1.0/(1.0+fi*0.7);
+    w += amp*sin(q.y*(1.0+fi*0.55) + (fbm2(q*uP[4],3)-0.5)*uP[5]*TAU + TA*k);
+    wn += amp;
+  }
+  w/=max(wn,1e-4);
+  float band=abs(fract(w*uP[6])-0.5);
+  vec3 c=pal(w*0.5+0.5);
+  return c*mix(uP[8],1.35,smoothstep(0.0,uP[7],band));
+}`
+},
+{
+  id:'moire', name:'Moire Interference',
+  params:[ PI_(0,'n','Layers',2,6,3), P(1,'spread','Angle spread',0,1.6,0.42,0.005),
+           PI_(2,'spin','Spin x/loop',1,6,1), P(3,'freq','Frequency',0.5,26,6.5,0.01),
+           P(4,'ramp','Frequency ramp',0,1,0.18,0.005), P(5,'off','Offset',0,1,0.3,0.005),
+           P(6,'lin','Linear <-> radial',0,1,0.35,0.005), P(7,'con','Colour range',0.2,4,1.1,0.01) ],
+  body:`
+vec3 field(vec2 uv){
+  float g=0.0, n=floor(uP[0]);
+  for(int i=0;i<6;i++){
+    float fi=float(i); if(fi>=n) break;
+    float dir=(mod(fi,2.0)<0.5)?1.0:-1.0;
+    vec2 q=rot(uv-vec2(cos(fi*2.4),sin(fi*2.4))*uP[5], uP[1]*fi + dir*TA*floor(uP[2]));
+    float f=uP[3]*(1.0+fi*uP[4]);
+    g += mix(sin(length(q)*f*TAU), sin(q.x*f*TAU), uP[6]);
+  }
+  g/=max(n,1.0);
+  return pal(g*uP[7]+0.5);
+}`
+},
+{
+  id:'meta', name:'Metaball Lava',
+  params:[ PI_(0,'n','Blobs',1,12,8), PI_(1,'orb','Orbit seed',0,7,0),
+           P(2,'rad','Orbit radius',0.05,1.4,0.62,0.005), P(3,'sz','Blob size',0.001,0.09,0.030,0.0002),
+           P(4,'gain','Field gain',0.2,8,3.6,0.01), P(5,'spread','Colour spread',0,2,0.7,0.005),
+           P(6,'off','Colour offset',0,1,0,0.005), P(7,'ramp','Field colour',0,2,0.7,0.005),
+           P(8,'mixc','Per-blob colour',0,1,0.4,0.005),
+           P(9,'thr','Surface level',0.05,0.95,0.62,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float n=floor(uP[0]);
+  float s=0.0; vec3 cc=vec3(0.0);
+  for(int i=0;i<12;i++){
+    float fi=float(i); if(fi>=n) break;
+    float ph=h11(fi*7.31+uSeed*13.7)*TAU;
+    float a=1.0+floor(mod(fi*2.0+uP[1],4.0));
+    float b=1.0+floor(mod(fi*3.0+uP[1]+1.0,4.0));
+    float rad=uP[2]*(0.35+0.9*h11(fi*3.17+uSeed*5.1+5.0));
+    vec2 c=rad*vec2(cos(TA*a+ph), sin(TA*b+ph*1.7));
+    float d2=dot(uv-c,uv-c);
+    float w=uP[3]/(d2+0.0015);
+    s+=w; cc+=pal(fi/max(n,1.0)*uP[5]+uP[6])*w;
+  }
+  /* Bound the field before shading it. An inverse-square sum is unbounded,
+     so a log of it still runs past 1 near a blob centre and every core
+     clipped to flat white. s/(1+s) lands in 0..1 by construction, which
+     makes the surface threshold mean something and keeps the cores in
+     gamut. */
+  vec3 base=cc/max(s,1e-4);
+  float f=s*uP[4];
+  f=f/(1.0+f);
+  float thr=uP[9];
+  float body=smoothstep(thr, thr+0.10, f);
+  float glow=smoothstep(thr*0.30, thr+0.06, f);
+  vec3 c=mix(pal(f*uP[7]*5.0+uP[6]), base, uP[8]);
+  return c*min(glow*0.45 + body*0.72, 1.05);
+}`
+},
+{
+  id:'voronoi', name:'Voronoi Crystal',
+  params:[ P(0,'scale','Scale',0.5,16,3.4,0.01), PI_(1,'orb','Drift seed',0,7,0),
+           P(2,'jit','Drift radius',0.0,0.44,0.3,0.002), P(3,'cid','Cell colour',0,3,1.0,0.005),
+           P(4,'grad','Inner gradient',-2,2,0.55,0.005), P(5,'edge','Edge width',0.005,0.5,0.09,0.002),
+           P(6,'dark','Edge darkness',0,1,0.06,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  vec2 p=uv*uP[0];
+  vec2 ip=floor(p), fp=fract(p);
+  float d1=9.0,d2=9.0; vec2 id=vec2(0.0);
+  for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+    vec2 g=vec2(float(i),float(j));
+    vec2 o=h22(ip+g+uSeed*7.0);
+    float a=1.0+floor(mod(o.x*7.0+uP[1],4.0));
+    float b=1.0+floor(mod(o.y*7.0+uP[1]+1.0,4.0));
+    vec2 pos=vec2(0.5)+uP[2]*vec2(cos(TA*a+o.x*TAU), sin(TA*b+o.y*TAU));
+    float d=length(g+pos-fp);
+    if(d<d1){ d2=d1; d1=d; id=ip+g; } else if(d<d2){ d2=d; }
+  }
+  float edge=d2-d1;
+  float cid=h12(id+uSeed*3.7);
+  vec3 c=pal(cid*uP[3]+d1*uP[4]);
+  return mix(c*uP[6], c, smoothstep(0.0,uP[5],edge));
+}`
+},
+{
+  id:'truchet', name:'Truchet Weave',
+  params:[ P(0,'scale','Scale',0.5,14,3.6,0.01), PI_(1,'sx','Scroll X x/loop',-3,3,1),
+           PI_(2,'sy','Scroll Y x/loop',-3,3,0), P(3,'w','Line width',0.02,0.5,0.13,0.002),
+           P(4,'cid','Tile colour',0,3,0.9,0.005), P(5,'grad','Line gradient',-4,4,1.6,0.01),
+           P(6,'bg','Background level',0,1,0.1,0.005), PI_(7,'per','Tile period',2,16,6) ],
+  body:`
+vec3 field(vec2 uv){
+  float per=floor(uP[7]);
+  vec2 p=uv*uP[0];
+  /* scroll as whole tiles + a fraction, so adding it never costs mantissa bits */
+  vec2 ph=T*vec2(floor(uP[1]),floor(uP[2]))*per;
+  vec2 phi=floor(ph), phf=ph-phi;
+  vec2 q=p+phf;
+  vec2 ip=floor(q)+phi, fp=fract(q)-0.5;
+  vec2 cell=imod(ip,per);
+  if(h12(cell+uSeed*11.0)<0.5) fp.x=-fp.x;
+  float d=min(abs(length(fp-vec2(0.5))-0.5), abs(length(fp+vec2(0.5))-0.5));
+  float m=smoothstep(uP[3], uP[3]*0.35, d);
+  vec3 c=pal(h12(cell*1.7+uSeed*3.0+3.0)*uP[4] + d*uP[5]);
+  return c*mix(uP[6],1.0,m);
+}`
+},
+{
+  id:'julia', name:'Julia Morph',
+  params:[ PI_(0,'cyc','Morph x/loop',1,5,1), P(1,'cx','Centre X',-1.2,1.2,-0.62,0.001),
+           P(2,'cy','Centre Y',-1.2,1.2,0.42,0.001), P(3,'r','Morph radius',0.0,0.6,0.13,0.001),
+           P(4,'z','Zoom',0.2,4,1.05,0.005), PI_(5,'it','Iterations',8,256,110),
+           P(6,'col','Colour rate',0.05,6,2.6,0.005), P(7,'off','Colour offset',0,1,0,0.005),
+           P(8,'ink','Interior',0,1,0.12,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float k=floor(uP[0]);
+  vec2 c=vec2(uP[1],uP[2]) + uP[3]*vec2(cos(TA*k),sin(TA*k));
+  vec2 z=uv*uP[4];
+  float maxI=uP[5], i=0.0, m=0.0;
+  for(int n=0;n<256;n++){
+    if(float(n)>=maxI) break;
+    z=vec2(z.x*z.x-z.y*z.y, 2.0*z.x*z.y)+c;
+    m=dot(z,z);
+    if(m>1024.0) break;
+    i+=1.0;
+  }
+  float sm=i;
+  if(m>1024.0) sm = i + 1.0 - log2(max(log2(max(m,1.0001)),1e-6));
+  vec3 col=pal(sm*uP[6]*0.02 + uP[7]);
+  if(i>=maxI-0.5) col*=uP[8];
+  return col;
+}`
+},
+{
+  id:'chladni', name:'Standing Waves',
+  params:[ P(0,'scale','Scale',0.2,6,1.15,0.005), PI_(1,'n','Modes',1,8,4),
+           PI_(2,'ma','Mode seed A',0,9,2), PI_(3,'mb','Mode seed B',0,9,5),
+           PI_(4,'cyc','Beat x/loop',1,4,1), P(5,'edge','Nodal width',0.01,1,0.2,0.005),
+           P(6,'col','Colour range',0.2,4,1.1,0.005), P(7,'dark','Field darkness',0,1,0.35,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  vec2 p=uv*uP[0];
+  float n=floor(uP[1]), f=0.0;
+  for(int i=0;i<8;i++){
+    float fi=float(i); if(fi>=n) break;
+    float m=1.0+floor(mod(fi*3.0+uP[2],7.0));
+    float q=1.0+floor(mod(fi*5.0+uP[3],7.0));
+    float amp=cos(TA*(1.0+floor(mod(fi,3.0)))*floor(uP[4]) + fi*1.7);
+    f += amp*(sin(p.x*m*PI)*sin(p.y*q*PI) - sin(p.x*q*PI)*sin(p.y*m*PI));
+  }
+  f/=max(n,1.0);
+  float e=smoothstep(uP[5],0.0,abs(f));
+  vec3 c=pal(f*uP[6]+0.5);
+  return mix(c*uP[7], c, e);
+}`
+},
+{
+  id:'phyllo', name:'Phyllotaxis', heavy:true,
+  params:[ PI_(0,'n','Seeds',8,256,150), P(1,'r','Spread',0.2,2.2,0.95,0.005),
+           PI_(2,'spin','Spin x/loop',0,4,1), PI_(3,'tw','Per-seed twist',0,3,1),
+           P(4,'sz','Dot size',0.005,0.3,0.055,0.001), P(5,'taper','Inner size',0.05,2,0.45,0.005),
+           P(6,'col','Colour range',0,3,1.0,0.005), P(7,'off','Colour offset',0,1,0,0.005),
+           P(8,'gain','Gain',0.1,3,0.85,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float n=floor(uP[0]);
+  vec3 acc=vec3(0.0);
+  const float ga=2.399963229728653;
+  for(int i=0;i<256;i++){
+    float fi=float(i); if(fi>=n) break;
+    float tt=fi/max(n-1.0,1.0);
+    float r=uP[1]*sqrt(tt);
+    float a=fi*ga + TA*floor(uP[2]) + fi*TA*floor(uP[3]);
+    vec2 c=r*vec2(cos(a),sin(a));
+    float rad=uP[4]*(uP[5]+(1.0-uP[5])*tt);
+    float d=length(uv-c)/max(rad,1e-4);
+    acc += pal(tt*uP[6]+uP[7])*exp(-d*d);
+  }
+  return acc*uP[8];
+}`
+},
+{
+  id:'ripple', name:'Ripple Sources',
+  params:[ PI_(0,'n','Sources',1,10,4), PI_(1,'orb','Orbit seed',0,7,0),
+           P(2,'rad','Orbit radius',0.0,1.2,0.42,0.005), P(3,'freq','Wavelength',0.3,12,3.2,0.01),
+           PI_(4,'cyc','Waves x/loop',1,8,2), P(5,'fall','Falloff',0,6,1.2,0.01),
+           P(6,'col','Colour range',0.2,5,1.4,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float n=floor(uP[0]), f=0.0;
+  for(int i=0;i<10;i++){
+    float fi=float(i); if(fi>=n) break;
+    float ph=h11(fi*4.13+uSeed*9.3)*TAU;
+    float a=1.0+floor(mod(fi+uP[1],3.0));
+    float b=1.0+floor(mod(fi*2.0+uP[1],3.0));
+    vec2 c=uP[2]*vec2(cos(TA*a+ph), sin(TA*b+ph*1.3));
+    float d=length(uv-c);
+    f += sin(d*uP[3]*TAU - TA*floor(uP[4]) + ph)/(1.0+d*uP[5]);
+  }
+  f/=max(n,1.0);
+  return pal(f*uP[6]+0.5);
+}`
+},
+{
+  id:'hex', name:'Hex Lattice',
+  params:[ P(0,'scale','Scale',0.5,20,4.4,0.01), PI_(1,'cyc','Pulse x/loop',1,6,1),
+           P(2,'wave','Radial wave',-3,3,0.8,0.005), P(3,'r','Cell radius',0.2,0.5,0.44,0.002),
+           P(4,'edge','Edge softness',0.01,0.3,0.06,0.002), P(5,'cid','Cell colour',0,3,0.75,0.005),
+           P(6,'pc','Pulse colour',0,2,0.45,0.005), P(7,'bg','Gap level',0,1,0.05,0.005),
+           P(8,'floor','Dim floor',0,1,0.3,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  vec2 p=uv*uP[0];
+  vec4 hc=hexCell(p);
+  vec2 gv=hc.xy, id=hc.zw;
+  float rnd=h12(id*1.3+uSeed*5.0);
+  float sp=1.0+floor(mod(rnd*9.0+uP[1],4.0));
+  float pulse=0.5+0.5*sin(TA*sp + rnd*TAU + length(id)*uP[2]);
+  float d=hexDist(gv);
+  float e=smoothstep(uP[3], uP[3]-uP[4], d);
+  vec3 c=pal(rnd*uP[5] + pulse*uP[6]);
+  return c*mix(uP[7],1.0,e)*(uP[8]+pulse*(1.0-uP[8]));
+}`
+},
+{
+  id:'fold', name:'Kaleido Fold',
+  params:[ PI_(0,'cyc','Morph x/loop',1,4,1), PI_(1,'it','Folds',2,24,13),
+           P(2,'rad','Morph radius',0.0,0.35,0.075,0.001), P(3,'ang','Pre-rotation',-3.2,3.2,0.0,0.005),
+           P(4,'cx','Fold X',0.15,1.5,0.76,0.002), P(5,'cy','Fold Y',0.0,1.5,0.44,0.002),
+           P(6,'tscale','Trap scale',0.2,8,2.0,0.01), P(7,'sharp','Sharpness',0.2,14,4.5,0.01),
+           P(8,'col','Colour range',0.2,6,2.4,0.01), P(9,'trail','Trap tint',0,3,0.9,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  /* The Kali set: p = abs(p)/dot(p,p) - c, read through a nearest-approach
+     orbit trap. Averaging the orbit was useless - the fold converges to the
+     same attractor wherever it starts, so every pixel came out one flat
+     colour. The trap is violently sensitive to where the orbit began, and
+     that sensitivity is the whole picture. c walks a circle once per loop,
+     which morphs the fractal and returns it exactly. */
+  vec2 p=rot(uv,uP[3]);
+  float k=floor(uP[0]), it=floor(uP[1]);
+  vec2 c=vec2(uP[4],uP[5]) + uP[2]*vec2(cos(TA*k),sin(TA*k));
+  float trap=1e9;
+  for(int i=0;i<24;i++){
+    if(float(i)>=it) break;
+    p=abs(p)/max(dot(p,p),1e-5) - c;
+    trap=min(trap, dot(p,p)*uP[6]);
+  }
+  float f=1.0-exp(-sqrt(max(trap,0.0))*uP[7]);
+  return pal(f*uP[8] + log(1.0+trap)*uP[9]);
+}`
+},
+{
+  id:'retro', name:'Retro Horizon',
+  params:[ P(0,'hor','Horizon',-0.4,0.4,-0.02,0.002), P(1,'depth','Depth scale',0.02,1.2,0.22,0.002),
+           PI_(2,'fly','Fly x/loop',1,8,2), P(3,'gx','Lanes',0.2,6,1.1,0.005),
+           P(4,'lw','Line weight',0.005,0.4,0.075,0.002), P(5,'gc','Ground colour',0,2,0.5,0.005),
+           P(6,'lc','Lane colour',0,2,0.25,0.005), P(7,'haze','Haze',0,1.5,0.35,0.005),
+           P(8,'sy','Sun height',0.0,0.9,0.30,0.005), P(9,'sr','Sun radius',0.05,0.8,0.30,0.005),
+           PI_(10,'sb','Sun bands',2,30,11), P(11,'sc','Sun colour',0,2,0.9,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float hor=uP[0];
+  vec3 col=vec3(0.0);
+  if(uv.y<hor){
+    float dy=hor-uv.y;
+    float z=min(1.0/max(dy,1e-4), 44.0);      /* clamped: 1/dy explodes past float precision */
+    float haze=smoothstep(44.0, 26.0, z);
+    dy=1.0/z;
+    float x=uv.x*z;
+    float zz=z*uP[1] + T*floor(uP[2]);
+    float gx=abs(fract(x*uP[3])-0.5);
+    float gz=abs(fract(zz)-0.5);
+    float lw=clamp(uP[4]*dy*6.0,0.004,0.45);
+    float g=(smoothstep(lw,0.0,gx)+smoothstep(lw,0.0,gz))*haze;
+    col=pal(fract(zz)*uP[5] + fract(x*uP[3])*uP[6])*g;
+    col+=pal(0.55)*uP[7]*dy;
+  } else {
+    vec2 q=uv-vec2(0.0,hor+uP[8]);
+    float d=length(q);
+    float s=smoothstep(uP[9],uP[9]*0.96,d);
+    float bands=step(0.0,sin((uv.y-hor)*floor(uP[10])*TAU));
+    s*=mix(1.0,bands,smoothstep(hor+uP[8],hor+uP[8]-uP[9],uv.y));
+    col=pal(clamp((uv.y-hor-uP[8]+uP[9])/(2.0*uP[9]),0.0,1.0)*uP[11])*s;
+    col+=pal(0.08)*uP[7]*0.35;
+  }
+  return col;
+}`
+},
+{
+  id:'flow4', name:'Aether Field', heavy:true,
+  params:[ P(0,'scale','Scale',0.3,8,1.9,0.01), PI_(1,'cyc','Evolve x/loop',1,4,1),
+           P(2,'w','Time radius',0.1,2.5,0.9,0.005), PI_(3,'oct','Octaves',1,4,3),
+           P(4,'warp','Warp',0,4,1.7,0.01), P(5,'ridge','Ridged',0,1,0.4,0.005),
+           P(6,'col','Colour range',0.2,5,1.2,0.01), P(7,'gain','Contrast',0.3,3,0.75,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float k=floor(uP[1]);
+  float cw=cos(TA*k)*uP[2], sw=sin(TA*k)*uP[2];
+  vec2 p=uv*uP[0];
+  int oc=int(uP[3]);
+  float a=fbm4(vec4(p, cw, sw), oc);
+  float b=fbm4(vec4(p+vec2(3.7,1.9), cw+11.0, sw-7.0), oc);
+  vec2 q=(vec2(a,b)-0.5)*uP[4];
+  float f=fbm4(vec4(p+q, cw+31.0, sw+17.0), oc);
+  f=mix(f, 1.0-abs(f*2.0-1.0), uP[5]);
+  f=smoothstep(0.26, 0.74, f);   /* opens the range out without clipping to flat white */
+  f=pow(clamp(f,0.0,1.0), 1.0/max(uP[7],0.05));
+  return pal(f*uP[6] + a*0.25);
+}`
+}
+];
+/* =====================================================================
+   FLAME FRACTAL  (the Electric Sheep one)
+   ---------------------------------------------------------------------
+   A GPU chaos game: N attribute-less points, each running the iterated
+   function system in the vertex shader and splatting additively into a
+   float buffer, then log-density tone mapped. The IFS coefficients are
+   driven by cos/sin(TA * integer), so the whole attractor breathes and
+   returns to exactly its starting shape at T=1.
+   ===================================================================== */
+
+const FLAME_VS = `#version 300 es
+precision highp float;
+precision highp int;
+uniform float uT, uSeed, uPass, uIter, uNT, uVarA, uVarB, uSym, uSpeed;
+uniform float uMix, uJitter, uPointSize, uSpread;
+uniform vec2  uRes, uPan;
+uniform float uZoom, uRot;
+uniform sampler2D uPal;
+uniform float uPalRot;
+out vec3 vCol;
+
+const float TAU = 6.283185307179586;
+#define TA (TAU*uT)
+
+uint pcg(inout uint s){ s = s*747796405u + 2891336453u; uint w=((s>>((s>>28u)+4u))^s)*277803737u; return (w>>22u)^w; }
+float rnd(inout uint s){ return float(pcg(s)) * 2.3283064365386963e-10; }
+
+vec2 varApply(int v, vec2 p, float pa, float pb){
+  float x=p.x, y=p.y;
+  float r2=x*x+y*y, r=sqrt(r2)+1e-9, th=atan(x,y), ph=atan(y,x);
+  if(v==0)  return p;
+  if(v==1)  return vec2(sin(x), sin(y));
+  if(v==2)  return p/r2;
+  if(v==3)  return vec2(x*sin(r2)-y*cos(r2), x*cos(r2)+y*sin(r2));
+  if(v==4)  return vec2((x-y)*(x+y)/r, 2.0*x*y/r);
+  if(v==5)  return vec2(th/3.14159265, r-1.0);
+  if(v==6)  return r*vec2(sin(th+r), cos(th-r));
+  if(v==7)  return r*vec2(sin(th*r), -cos(th*r));
+  if(v==8)  return (th/3.14159265)*vec2(sin(3.14159265*r), cos(3.14159265*r));
+  if(v==9)  return vec2(cos(th)+sin(r), sin(th)-cos(r))/r;
+  if(v==10) return vec2(sin(th)/r, r*cos(th));
+  if(v==11) return vec2(sin(th)*cos(r), cos(th)*sin(r));
+  if(v==12){ float p0=sin(th+r), p1=cos(th-r); p0=p0*p0*p0; p1=p1*p1*p1; return r*vec2(p0+p1, p0-p1); }
+  if(v==13){ float om = (pa<0.5)?0.0:3.14159265; return sqrt(r)*vec2(cos(ph*0.5+om), sin(ph*0.5+om)); }
+  if(v==14) return vec2(x<0.0?2.0*x:x, y<0.0?y*0.5:y);
+  if(v==15) return (2.0/(r+1.0))*vec2(y,x);
+  if(v==16) return (2.0/(r+1.0))*p;
+  if(v==17) return (4.0/(r2+4.0))*p;
+  if(v==18) return vec2(sin(x), y);
+  if(v==19) return vec2(sin(x)/max(cos(y),1e-3), tan(y));
+  if(v==20) return vec2(x + pa*sin(tan(3.0*y)), y + pb*sin(tan(3.0*x)));
+  if(v==21) return exp(x-1.0)*vec2(cos(3.14159265*y), sin(3.14159265*y));
+  if(v==22){ float pw=pow(r, sin(ph)); return pw*vec2(cos(ph), sin(ph)); }
+  if(v==23) return vec2(cos(3.14159265*x)*cosh(y), -sin(3.14159265*x)*sinh(y));
+  if(v==24){ float t=r*(1.0+pa); return vec2(cos(th)*t, sin(th)*t)*0.6; }
+  return p;
+}
+
+void main(){
+  uint s = uint(gl_VertexID) * 2654435761u
+         ^ uint(uPass) * 40503u
+         ^ uint(uSeed * 65536.0);
+  s = s * 747796405u + 1u;
+  for(int w=0; w<3; w++) pcg(s);
+
+  vec2 p = vec2(rnd(s), rnd(s)) * 2.0 - 1.0;
+  float col = rnd(s);
+  int NT = int(uNT);
+  int iters = int(uIter);
+
+  for(int it=0; it<40; it++){
+    if(it>=iters) break;
+    int k = int(rnd(s) * float(NT));
+    if(k>=NT) k = NT-1;
+    float fk = float(k);
+
+    /* deterministic per-transform coefficients from the seed */
+    float g0 = fract(sin(fk*12.9898 + uSeed*7.233) * 43758.5453);
+    float g1 = fract(sin(fk*78.2330 + uSeed*3.117) * 24634.6345);
+    float g2 = fract(sin(fk*39.4260 + uSeed*9.771) * 12784.1234);
+    float g3 = fract(sin(fk*93.9898 + uSeed*1.443) * 39812.7761);
+    float g4 = fract(sin(fk*27.1210 + uSeed*5.913) * 51234.9871);
+    float g5 = fract(sin(fk*61.7770 + uSeed*8.221) * 27341.3312);
+
+    /* animated affine: rotation and translation ride integer harmonics */
+    float spin = floor(1.0 + mod(g3*7.0 + uSpeed, 3.0));
+    float ang  = (g0*2.0-1.0)*3.14159265 + TA*spin;
+    float sc   = uSpread*(0.42 + 0.5*g1);
+    float ca = cos(ang)*sc, sa = sin(ang)*sc;
+    float shear = (g4*2.0-1.0)*0.55*uMix;
+    vec2 tr = vec2(g2*2.0-1.0, g5*2.0-1.0) * (0.55*uSpread)
+            + uJitter*vec2(cos(TA*floor(1.0+mod(g4*5.0,3.0)) + g1*TAU),
+                           sin(TA*floor(1.0+mod(g5*5.0,3.0)) + g2*TAU));
+
+    vec2 q = vec2(ca*p.x - sa*p.y + shear*p.y, sa*p.x + ca*p.y + shear*p.x) + tr;
+
+    int v = (g1 < uMix) ? int(uVarB) : int(uVarA);
+    if(g5 > 0.72) v = 0;
+    q = varApply(v, q, g0, g2);
+
+    p = q;
+    col = mix(col, fract(g3*1.7 + fk*0.37), 0.42);
+    if(any(isnan(p)) || any(isinf(p))) { p = vec2(rnd(s),rnd(s))*2.0-1.0; }
+  }
+
+  /* n-fold symmetry as a single final rotation. Applied inside the loop it
+     would just smear the attractor into a disc; applied once at the end it
+     stamps the finished shape into n arms, which is what a symmetric flame
+     actually is. Whole-turn fractions, so the loop stays exact. */
+  if(uSym > 1.5){
+    float arm = floor(rnd(s) * uSym);
+    float aa = (TAU/uSym) * arm;
+    float cs = cos(aa), sn = sin(aa);
+    p = vec2(cs*p.x - sn*p.y, sn*p.x + cs*p.y);
+  }
+
+  vCol = textureLod(uPal, vec2(col + uPalRot, 0.5), 0.0).rgb;
+
+  vec2 sp = p;
+  float c2=cos(-uRot), s2=sin(-uRot);
+  vec2 d = (sp - uPan)/uZoom;
+  vec2 scr = vec2(c2*d.x - s2*d.y, s2*d.x + c2*d.y);
+  vec2 ndc = scr * (2.0*min(uRes.x,uRes.y)) / uRes;
+  gl_Position = vec4(ndc, 0.0, 1.0);
+  gl_PointSize = uPointSize;
+}
+`;
+
+const FLAME_FS = `#version 300 es
+precision highp float;
+in vec3 vCol;
+uniform float uWeight;
+out vec4 O;
+void main(){ O = vec4(vCol*uWeight, uWeight); }
+`;
+
+const FLAME_RESOLVE = `#version 300 es
+precision highp float;
+uniform sampler2D uAcc;
+uniform vec2 uRes;
+uniform float uExposure, uGamma, uNorm, uMirror, uMirrorRot, uSat;
+uniform float uAlphaMode, uAlphaGain, uAlphaBias;
+out vec4 O;
+const float TAU = 6.283185307179586;
+vec2 kal(vec2 p,float n){
+  if(n<1.5) return p;
+  float r=length(p);
+  float a=atan(p.y,p.x)-uMirrorRot;
+  float seg=TAU/n; a=mod(a,seg); a=abs(a-seg*0.5); a+=uMirrorRot;
+  return vec2(cos(a),sin(a))*r;
+}
+void main(){
+  float m=min(uRes.x,uRes.y);
+  vec2 sc=(gl_FragCoord.xy-0.5*uRes)/m;
+  sc=kal(sc,uMirror);
+  vec2 tuv=sc*m/uRes+0.5;
+  vec4 a=texture(uAcc, tuv);
+  float dens=a.a;
+  vec3 c=a.rgb/max(dens,1e-6);
+  /* log density against a FIXED reference (never a per-frame maximum, which
+     would make the brightness flicker frame to frame and ruin the loop) */
+  float b=log(1.0+dens)/max(uNorm,1e-6);
+  b=pow(clamp(b,0.0,1.0), 1.0/max(uGamma,0.05));
+  float l=dot(c,vec3(0.2126,0.7152,0.0722));
+  c=mix(vec3(l), c, uSat);
+  vec3 outc=max(c*b*uExposure, 0.0);
+  float al=1.0;
+  if(uAlphaMode>0.5){
+    float lu=dot(outc,vec3(0.2126,0.7152,0.0722));
+    al=clamp((lu-uAlphaBias)*uAlphaGain,0.0,1.0);
+  }
+  O=vec4(outc, al);
+}
+`;
+
+const FLAME_DEF = {
+  id:'flame', name:'Flame Fractal', flame:true, heavy:true,
+  params:[
+    PI_(0,'nt','Transforms',2,6,3), PI_(1,'va','Variation A',0,24,13),
+    PI_(2,'vb','Variation B',0,24,3), P(3,'mix','B share',0,1,0.45,0.005),
+    PI_(4,'sym','Symmetry',1,12,4), P(5,'spread','Spread',0.4,1.6,0.95,0.005),
+    P(6,'jit','Breathe',0.0,0.6,0.14,0.002), PI_(7,'sp','Breathe x/loop',0,3,1),
+    P(8,'exp','Exposure',0.05,8,0.82,0.01), P(9,'gam','Gamma',0.6,4,2.9,0.01),
+    P(10,'sat','Saturation',0,2,1.05,0.005), PI_(11,'q','Quality',1,8,5),
+    PI_(12,'it','Iterations',6,40,22), P(13,'ps','Point size',1,3,1.4,0.1)
+  ]
+};
+const FLAME_VARS = ['linear','sinusoidal','spherical','swirl','horseshoe','polar','handkerchief',
+  'heart','disc','spiral','hyperbolic','diamond','ex','julia','bent','fisheye','eyefish','bubble',
+  'cylinder','tangent','popcorn','exponential','power','cosine','rings'];
+
+GENS.push(FLAME_DEF);
+
+/* =====================================================================
+   POST CHAIN
+   ===================================================================== */
+const VS_QUAD = `#version 300 es
+precision highp float;
+void main(){
+  vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2);
+  gl_Position = vec4(p*2.0-1.0, 0.0, 1.0);
+}
+`;
+
+const FS_BRIGHT = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uRes; uniform float uThresh, uKnee;
+out vec4 O;
+void main(){
+  vec2 uv=gl_FragCoord.xy/uRes;
+  vec3 c=texture(uSrc,uv).rgb;
+  float l=dot(c,vec3(0.2126,0.7152,0.0722));
+  float w=smoothstep(uThresh, uThresh+uKnee, l);
+  O=vec4(c*w,1.0);
+}
+`;
+
+const FS_BLUR = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uRes; uniform vec2 uDir;
+out vec4 O;
+void main(){
+  vec2 uv=gl_FragCoord.xy/uRes;
+  vec2 t=uDir/uRes;
+  vec3 s=texture(uSrc,uv).rgb*0.227027;
+  s+=texture(uSrc,uv+t*1.384615).rgb*0.316216;
+  s+=texture(uSrc,uv-t*1.384615).rgb*0.316216;
+  s+=texture(uSrc,uv+t*3.230769).rgb*0.070270;
+  s+=texture(uSrc,uv-t*3.230769).rgb*0.070270;
+  O=vec4(s,1.0);
+}
+`;
+
+const FS_COMPOSITE = `#version 300 es
+precision highp float;
+uniform sampler2D uScene, uBloomA, uBloomB;
+uniform vec2 uRes;
+uniform float uBloom, uExposure, uContrast, uSat, uGammaC, uVig, uVigSoft;
+uniform float uGrain, uFrameIdx, uChroma, uPosterize, uScan, uScanFreq;
+uniform float uAlphaOut;
+out vec4 O;
+float h13(vec3 p3){ p3=fract(p3*0.1031); p3+=dot(p3,p3.zyx+31.32); return fract((p3.x+p3.y)*p3.z); }
+void main(){
+  vec2 uv=gl_FragCoord.xy/uRes;
+  vec2 ctr=uv-0.5;
+  vec4 sc;
+  if(uChroma>0.0001){
+    vec2 o=ctr*uChroma*0.02;
+    vec4 a=texture(uScene, uv+o);
+    vec4 b=texture(uScene, uv);
+    vec4 c=texture(uScene, uv-o);
+    sc=vec4(a.r,b.g,c.b,max(max(a.a,b.a),c.a));
+  } else {
+    sc=texture(uScene, uv);
+  }
+  vec3 col=sc.rgb;
+  if(uBloom>0.0001){
+    vec3 bl=texture(uBloomA,uv).rgb*0.62 + texture(uBloomB,uv).rgb*0.38;
+    col+=bl*uBloom;
+  }
+  col*=uExposure;
+  col=(col-0.5)*uContrast+0.5;
+  float l=dot(col,vec3(0.2126,0.7152,0.0722));
+  col=mix(vec3(l),col,uSat);
+  col=max(col,0.0);
+  col=pow(col, vec3(1.0/max(uGammaC,0.05)));
+  if(uPosterize>1.5){ col=floor(col*uPosterize+0.5)/uPosterize; }
+  if(uScan>0.0001){
+    float s=0.5+0.5*sin(gl_FragCoord.y*uScanFreq*3.14159265);
+    col*=mix(1.0, s, uScan);
+  }
+  if(uVig>0.0001){
+    float d=length(ctr*vec2(uRes.x/uRes.y,1.0));
+    col*=mix(1.0, smoothstep(1.05, 1.05-uVigSoft, d), uVig);
+  }
+  if(uGrain>0.0001){
+    float g=h13(vec3(gl_FragCoord.xy, uFrameIdx))-0.5;
+    col+=g*uGrain*0.25;
+  }
+  col=clamp(col,0.0,1.0);
+  float a = (uAlphaOut>0.5) ? clamp(sc.a,0.0,1.0) : 1.0;
+  O=vec4(col, a);
+}
+`;
+
+const FS_BLIT = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uRes;
+out vec4 O;
+void main(){ O = texture(uSrc, gl_FragCoord.xy/uRes); }
+`;
+/* =====================================================================
+   STATE
+   ===================================================================== */
+const GEN_BY_ID = {};
+GENS.forEach(g => GEN_BY_ID[g.id] = g);
+
+const FRAME_DEF = [
+  P(0,'zoom','Zoom',0.1,6,1,0.005),
+  P(0,'rot','Rotation',-3.15,3.15,0,0.005),
+  PI_(0,'spin','Spin x/loop',-4,4,0),
+  P(0,'panx','Pan X',-2,2,0,0.005),
+  P(0,'pany','Pan Y',-2,2,0,0.005),
+  PI_(0,'mirror','Kaleidoscope',0,16,0),
+  P(0,'mrot','Mirror angle',-3.15,3.15,0,0.005),
+  PI_(0,'mspin','Mirror spin x/loop',-3,3,0)
+];
+const POST_DEF = [
+  P(0,'bloom','Bloom',0,3,0.55,0.005),
+  P(0,'thresh','Bloom threshold',0,1.2,0.42,0.005),
+  P(0,'knee','Bloom knee',0.01,1,0.3,0.005),
+  P(0,'radius','Bloom radius',0.3,6,1.6,0.01),
+  P(0,'exposure','Exposure',0.05,4,1.0,0.005),
+  P(0,'contrast','Contrast',0.2,3,1.06,0.005),
+  P(0,'sat','Saturation',0,2.5,1.08,0.005),
+  P(0,'gamma','Gamma',0.4,2.5,1.0,0.005),
+  P(0,'vig','Vignette',0,1,0.28,0.005),
+  P(0,'vigSoft','Vignette softness',0.05,1.2,0.55,0.005),
+  P(0,'grain','Grain',0,1,0.06,0.005),
+  P(0,'chroma','Chromatic aberration',0,3,0.2,0.005),
+  PI_(0,'posterize','Posterize',0,32,0),
+  P(0,'scan','Scanlines',0,1,0,0.005),
+  P(0,'scanFreq','Scanline pitch',0.05,1.5,0.5,0.005)
+];
+const PAL_EXTRA_DEF = [
+  PI_(0,'cycles','Palette cycles x/loop',-6,6,0),
+  P(0,'offset','Palette offset',0,1,0,0.002)
+];
+const ALPHA_DEF = [
+  P(0,'alphaGain','Alpha gain',0.2,12,3.0,0.01),
+  P(0,'alphaBias','Alpha cutoff',0,1,0.06,0.005)
+];
+
+function defObj(defs) { const o = {}; defs.forEach(d => o[d.k] = d.d); return o; }
+function genDefaults(g) { const o = {}; g.params.forEach(p => o[p.k] = p.d); return o; }
+
+const S = {
+  gen: 'warp',
+  seed: 'aurora771',
+  params: {},
+  frame: defObj(FRAME_DEF),
+  post: defObj(POST_DEF),
+  palX: defObj(PAL_EXTRA_DEF),
+  alpha: defObj(ALPHA_DEF),
+  pal: { stops: PAL_PRESETS[0].s.map((c, i) => ({ p: i / PAL_PRESETS[0].s.length, c })), space: 'oklab', preset: 0 },
+  out: { w: 1280, h: 720, dur: 4, fps: 24, ss: 2, bg: 'opaque' },
+  gif: { colors: 256, dither: 'fs', strength: 0.9, kmeans: true },
+  vid: { codec: '', q: 0.22 }
+};
+GENS.forEach(g => S.params[g.id] = genDefaults(g));
+
+let LUT = buildLut(S.pal.stops, S.pal.space);
+const totalFrames = () => Math.max(1, Math.round(S.out.dur * S.out.fps));
+
+/* =====================================================================
+   WEBGL ENGINE
+   ===================================================================== */
+const cvs = $('#gl');
+const gl = cvs.getContext('webgl2', {
+  alpha: true, premultipliedAlpha: false, antialias: false,
+  depth: false, stencil: false, preserveDrawingBuffer: false,
+  powerPreference: 'high-performance', desynchronized: false
+});
+let GL_OK = !!gl;
+let FLOAT_OK = false, FLOAT_BLEND = false, COLOR_FMT = 0;
+
+if (GL_OK) {
+  const cbf = gl.getExtension('EXT_color_buffer_float');
+  const cbh = gl.getExtension('EXT_color_buffer_half_float');
+  gl.getExtension('OES_texture_float_linear');
+  const fb = gl.getExtension('EXT_float_blend');
+  FLOAT_OK = !!(cbf || cbh);
+  FLOAT_BLEND = !!fb;
+  COLOR_FMT = cbf ? gl.RGBA16F : (cbh ? gl.RGBA16F : gl.RGBA8);
+  if (!FLOAT_OK) COLOR_FMT = gl.RGBA8;
+}
+
+const progCache = new Map();
+function makeShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s);
+    console.error('shader compile failed:\n' + log + '\n---\n' +
+      src.split('\n').map((l, i) => (i + 1) + ': ' + l).join('\n'));
+    gl.deleteShader(s); return null;
+  }
+  return s;
+}
+function makeProg(key, vsSrc, fsSrc) {
+  if (progCache.has(key)) return progCache.get(key);
+  const vs = makeShader(gl.VERTEX_SHADER, vsSrc);
+  const fs = makeShader(gl.FRAGMENT_SHADER, fsSrc);
+  if (!vs || !fs) { progCache.set(key, null); return null; }
+  const p = gl.createProgram();
+  gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    console.error('link failed: ' + gl.getProgramInfoLog(p));
+    progCache.set(key, null); return null;
+  }
+  gl.deleteShader(vs); gl.deleteShader(fs);
+  const uni = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) {
+    const info = gl.getActiveUniform(p, i);
+    const nm = info.name.replace(/\[0\]$/, '');
+    uni[nm] = gl.getUniformLocation(p, info.name);
+  }
+  const rec = { p, uni };
+  progCache.set(key, rec);
+  return rec;
+}
+function genProg(g) {
+  return makeProg('gen:' + g.id, VS_QUAD, GLSL_PRELUDE + g.body + GLSL_MAIN);
+}
+
+function u1f(r, n, v) { if (r.uni[n] !== undefined) gl.uniform1f(r.uni[n], v); }
+function u2f(r, n, a, b) { if (r.uni[n] !== undefined) gl.uniform2f(r.uni[n], a, b); }
+function u1i(r, n, v) { if (r.uni[n] !== undefined) gl.uniform1i(r.uni[n], v); }
+function u1fv(r, n, v) { if (r.uni[n] !== undefined) gl.uniform1fv(r.uni[n], v); }
+
+/* ---- render targets ---- */
+const SCRATCH_UNIT = 7;   // never touch units 0-2, the render passes own those
+function makeFbo(w, h, fmt) {
+  const tex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0 + SCRATCH_UNIT);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  const internal = fmt || COLOR_FMT;
+  const type = internal === gl.RGBA8 ? gl.UNSIGNED_BYTE : gl.HALF_FLOAT;
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, w, h, 0, gl.RGBA, type, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  gl.activeTexture(gl.TEXTURE0);
+  return { fb, tex, w, h, fmt: internal };
+}
+const rt = {};
+function need(name, w, h, fmt) {
+  const cur = rt[name];
+  if (cur && cur.w === w && cur.h === h && (!fmt || cur.fmt === fmt)) return cur;
+  if (cur) { gl.deleteTexture(cur.tex); gl.deleteFramebuffer(cur.fb); }
+  return (rt[name] = makeFbo(w, h, fmt));
+}
+
+/* ---- palette texture ---- */
+let palTex = null;
+function uploadPalette() {
+  if (!GL_OK) return;
+  if (!palTex) {
+    palTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, palTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, palTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, LUT_N, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, LUT);
+}
+
+let vao = null;
+function ensureVao() { if (!vao) { vao = gl.createVertexArray(); } gl.bindVertexArray(vao); }
+function drawQuad() { gl.drawArrays(gl.TRIANGLES, 0, 3); }
+
+/* ---- common per-frame uniform values ----
+   Spin counts are whole turns per loop, so only the fractional turn matters.
+   Keeping angles inside one turn is mathematically identical and stops the
+   mantissa draining as the spin count climbs, which is what used to make
+   hard-edged patterns twitch at the seam. */
+const wrap1 = x => x - Math.floor(x);
+function frameUniforms(t) {
+  const F = S.frame;
+  return {
+    rot: F.rot + TAU * wrap1(t * F.spin),
+    zoom: F.zoom,
+    pan: [F.panx, F.pany],
+    mirror: F.mirror,
+    mirrorRot: F.mrot + TAU * wrap1(t * F.mspin),
+    palRot: S.palX.offset + wrap1(t * S.palX.cycles),
+    seedF: (hashStr(S.seed) % 100000) / 1000
+  };
+}
+
+const POINTS_PER_PASS = 262144;
+
+/* =====================================================================
+   THE RENDERER
+   render(t, W, H, ss) -> leaves the finished RGBA frame in the canvas
+   drawing buffer (W x H). Deterministic: same inputs, same pixels.
+   ===================================================================== */
+let lastRenderErr = '';
+function render(t, W, H, ss) {
+  if (!GL_OK) return false;
+  ensureVao();
+  const rw = Math.max(1, Math.round(W * ss)), rh = Math.max(1, Math.round(H * ss));
+  const g = GEN_BY_ID[S.gen];
+  const fu = frameUniforms(t);
+  const alphaOn = S.out.bg === 'alpha';
+  const scene = need('scene', rw, rh);
+
+  gl.disable(gl.BLEND);
+  gl.disable(gl.DEPTH_TEST);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, palTex);
+
+  if (g.flame) {
+    const pv = S.params.flame;
+    const acc = need('acc', rw, rh, FLOAT_OK ? COLOR_FMT : gl.RGBA8);
+    const pa = makeProg('flame', FLAME_VS, FLAME_FS);
+    if (!pa) { lastRenderErr = 'flame shader failed'; return false; }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, acc.fb);
+    gl.viewport(0, 0, rw, rh);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(pa.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, palTex);
+    u2f(pa, 'uRes', rw, rh);
+    u1f(pa, 'uT', t); u1f(pa, 'uSeed', fu.seedF);
+    u1f(pa, 'uNT', pv.nt); u1f(pa, 'uVarA', pv.va); u1f(pa, 'uVarB', pv.vb);
+    u1f(pa, 'uMix', pv.mix); u1f(pa, 'uSym', pv.sym); u1f(pa, 'uSpread', pv.spread);
+    u1f(pa, 'uJitter', pv.jit); u1f(pa, 'uSpeed', pv.sp); u1f(pa, 'uIter', pv.it);
+    u1f(pa, 'uPointSize', pv.ps * ss);
+    u1f(pa, 'uZoom', fu.zoom); u1f(pa, 'uRot', fu.rot);
+    u2f(pa, 'uPan', fu.pan[0], fu.pan[1]);
+    u1f(pa, 'uPalRot', fu.palRot);
+    u1i(pa, 'uPal', 0);
+    u1f(pa, 'uWeight', 1.0);
+    const passes = Math.max(1, Math.round(pv.q));
+    for (let i = 0; i < passes; i++) {
+      u1f(pa, 'uPass', i);
+      gl.drawArrays(gl.POINTS, 0, POINTS_PER_PASS);
+    }
+    gl.disable(gl.BLEND);
+
+    const pr = makeProg('flameres', VS_QUAD, FLAME_RESOLVE);
+    if (!pr) { lastRenderErr = 'flame resolve failed'; return false; }
+    const ptsz = pv.ps * ss;
+    /* Reference density for the log tone map. A flame's histogram is wildly
+       peaked - the core can run a hundred times the mean - so normalising to
+       anything near the average clips it to white. This reference is fixed
+       (never a per-frame maximum, which would make the brightness pump from
+       frame to frame and break the loop) and generous enough to leave the
+       core headroom; Exposure is then a straightforward brightness dial. */
+    const refDens = Math.max(1e-3, (POINTS_PER_PASS * passes) / (rw * rh) * ptsz * ptsz * 34.0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fb);
+    gl.viewport(0, 0, rw, rh);
+    gl.useProgram(pr.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, acc.tex);
+    u1i(pr, 'uAcc', 0);
+    u2f(pr, 'uRes', rw, rh);
+    u1f(pr, 'uExposure', pv.exp); u1f(pr, 'uGamma', pv.gam); u1f(pr, 'uSat', pv.sat);
+    u1f(pr, 'uNorm', Math.log(1 + refDens));
+    u1f(pr, 'uMirror', fu.mirror); u1f(pr, 'uMirrorRot', fu.mirrorRot);
+    u1f(pr, 'uAlphaMode', alphaOn ? 1 : 0);
+    u1f(pr, 'uAlphaGain', S.alpha.alphaGain); u1f(pr, 'uAlphaBias', S.alpha.alphaBias);
+    drawQuad();
+  } else {
+    const pg = genProg(g);
+    if (!pg) { lastRenderErr = 'generator "' + g.name + '" failed to compile'; return false; }
+    const arr = new Float32Array(16);
+    g.params.forEach(pd => { arr[pd.i] = S.params[g.id][pd.k]; });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, scene.fb);
+    gl.viewport(0, 0, rw, rh);
+    gl.useProgram(pg.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, palTex);
+    u1i(pg, 'uPal', 0);
+    u2f(pg, 'uRes', rw, rh);
+    u1f(pg, 'uT', t); u1f(pg, 'uSeed', fu.seedF);
+    u1fv(pg, 'uP', arr);
+    u1f(pg, 'uZoom', fu.zoom); u1f(pg, 'uRot', fu.rot);
+    u1f(pg, 'uMirror', fu.mirror); u1f(pg, 'uMirrorRot', fu.mirrorRot);
+    u1f(pg, 'uPalRot', fu.palRot);
+    u2f(pg, 'uPan', fu.pan[0], fu.pan[1]);
+    u1f(pg, 'uAlphaMode', alphaOn ? 1 : 0);
+    u1f(pg, 'uAlphaGain', S.alpha.alphaGain);
+    u1f(pg, 'uAlphaBias', S.alpha.alphaBias);
+    drawQuad();
+  }
+
+  /* ---- bloom ---- */
+  const P_ = S.post;
+  const bw = Math.max(2, rw >> 2), bh = Math.max(2, rh >> 2);
+  const b0 = need('b0', bw, bh), b1 = need('b1', bw, bh), b2 = need('b2', bw, bh), b3 = need('b3', bw, bh);
+  if (P_.bloom > 0.0005) {
+    const pb = makeProg('bright', VS_QUAD, FS_BRIGHT);
+    const pblur = makeProg('blur', VS_QUAD, FS_BLUR);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, b0.fb); gl.viewport(0, 0, bw, bh);
+    gl.useProgram(pb.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, scene.tex);
+    u1i(pb, 'uSrc', 0); u2f(pb, 'uRes', bw, bh);
+    u1f(pb, 'uThresh', P_.thresh); u1f(pb, 'uKnee', P_.knee);
+    drawQuad();
+    const r = P_.radius;
+    const chain = [[b0, b1, r, 0], [b1, b2, 0, r], [b2, b3, r * 2.7, 0], [b3, b1, 0, r * 2.7]];
+    gl.useProgram(pblur.p); u1i(pblur, 'uSrc', 0);
+    for (const [src, dst, dx, dy] of chain) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fb); gl.viewport(0, 0, bw, bh);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.tex);
+      u2f(pblur, 'uRes', bw, bh); u2f(pblur, 'uDir', dx, dy);
+      drawQuad();
+    }
+    // b2 holds the first blur level, b1 the wide one
+  }
+
+  /* ---- composite to the canvas ---- */
+  if (cvs.width !== W || cvs.height !== H) { cvs.width = W; cvs.height = H; }
+  const pc = makeProg('comp', VS_QUAD, FS_COMPOSITE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, W, H);
+  gl.useProgram(pc.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, scene.tex); u1i(pc, 'uScene', 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (P_.bloom > 0.0005 ? b2 : b0).tex); u1i(pc, 'uBloomA', 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, (P_.bloom > 0.0005 ? b1 : b0).tex); u1i(pc, 'uBloomB', 2);
+  u2f(pc, 'uRes', W, H);
+  u1f(pc, 'uBloom', P_.bloom); u1f(pc, 'uExposure', P_.exposure);
+  u1f(pc, 'uContrast', P_.contrast); u1f(pc, 'uSat', P_.sat); u1f(pc, 'uGammaC', P_.gamma);
+  u1f(pc, 'uVig', P_.vig); u1f(pc, 'uVigSoft', P_.vigSoft);
+  u1f(pc, 'uGrain', P_.grain); u1f(pc, 'uChroma', P_.chroma);
+  u1f(pc, 'uPosterize', P_.posterize); u1f(pc, 'uScan', P_.scan); u1f(pc, 'uScanFreq', P_.scanFreq);
+  const _N = totalFrames();
+  u1f(pc, 'uFrameIdx', ((Math.floor(t * _N + 1e-6) % _N) + _N) % _N);   // grain repeats with the loop
+  u1f(pc, 'uAlphaOut', alphaOn ? 1 : 0);
+  gl.activeTexture(gl.TEXTURE0);
+  drawQuad();
+  return true;
+}
+
+/* read the canvas back, flipped to top-down RGBA */
+let readBuf = null;
+function readFrame(W, H) {
+  const need = W * H * 4;
+  if (!readBuf || readBuf.length !== need) readBuf = new Uint8Array(need);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, readBuf);
+  const out = new Uint8Array(need);
+  const row = W * 4;
+  for (let y = 0; y < H; y++) {
+    out.set(readBuf.subarray((H - 1 - y) * row, (H - y) * row), y * row);
+  }
+  return out;
+}
+/* =====================================================================
+   UI
+   ===================================================================== */
+let dirty = true, playing = true, tNow = 0, lastRAF = 0;
+let seamMode = 0, seamTick = 0;
+let busy = false;
+
+function markDirty() { dirty = true; }
+
+function mkSlider(def, get, set, after) {
+  const wrap = el('div', 'ctl' + (def.int ? ' isint' : ''));
+  const top = el('div', 'top');
+  const nm = el('span', 'name', def.n);
+  const val = el('span', 'val' + (def.int ? ' int' : ''));
+  top.appendChild(nm); top.appendChild(val);
+  const inp = document.createElement('input');
+  inp.type = 'range'; inp.min = def.mn; inp.max = def.mx; inp.step = def.st;
+  wrap.appendChild(top); wrap.appendChild(inp);
+  const show = v => {
+    val.textContent = def.int ? String(Math.round(v)) :
+      (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(3));
+    const pct = (v - def.mn) / (def.mx - def.mn) * 100;
+    inp.style.setProperty('--pct', clamp(pct, 0, 100) + '%');
+  };
+  const sync = () => { const v = get(); inp.value = v; show(v); };
+  inp.addEventListener('input', () => {
+    let v = parseFloat(inp.value);
+    if (def.int) v = Math.round(v);
+    set(v); show(v); markDirty(); if (after) after();
+  });
+  // double-click the readout to reset
+  val.addEventListener('dblclick', () => { set(def.d); sync(); markDirty(); if (after) after(); });
+  val.title = 'double-click to reset';
+  wrap._sync = sync;
+  sync();
+  return wrap;
+}
+
+function buildCtlList(host, defs, store, after) {
+  host.innerHTML = '';
+  const syncs = [];
+  defs.forEach(d => {
+    const s = mkSlider(d, () => store[d.k], v => { store[d.k] = v; }, after);
+    host.appendChild(s); syncs.push(s._sync);
+  });
+  host._syncAll = () => syncs.forEach(f => f());
+}
+
+/* ---------------- generator gallery ---------------- */
+const thumbCanvases = {};
+function buildGallery() {
+  const host = $('#gens'); host.innerHTML = '';
+  GENS.forEach(g => {
+    const b = el('button', 'gen' + (g.id === S.gen ? ' on' : ''));
+    b.dataset.id = g.id;
+    const c = document.createElement('canvas');
+    c.width = 132; c.height = 44;
+    b.appendChild(c);
+    if (g.heavy) { const h = el('span', 'heavy', 'slow'); b.appendChild(h); }
+    b.appendChild(el('span', 'nm', g.name));
+    b.addEventListener('click', () => selectGen(g.id));
+    host.appendChild(b);
+    thumbCanvases[g.id] = c;
+  });
+}
+function selectGen(id) {
+  S.gen = id;
+  $$('#gens .gen').forEach(e => e.classList.toggle('on', e.dataset.id === id));
+  $('#genTag').textContent = GEN_BY_ID[id].name;
+  buildParams();
+  markDirty(); pushUrl();
+}
+
+let thumbTimer = 0;
+function scheduleThumbs() { clearTimeout(thumbTimer); thumbTimer = setTimeout(renderThumbs, 260); }
+function renderThumbs() {
+  if (!GL_OK || busy) return;
+  const keepGen = S.gen, keepFrame = S.frame, keepPost = S.post, keepBg = S.out.bg;
+  S.frame = defObj(FRAME_DEF);
+  S.post = defObj(POST_DEF);
+  S.post.vig = 0; S.post.grain = 0; S.post.chroma = 0;
+  S.out.bg = 'opaque';
+  const W = 132, H = 44;
+  for (const g of GENS) {
+    S.gen = g.id;
+    if (g.flame) { S.params.flame = Object.assign({}, S.params.flame); }
+    const ok = render(0.0, W, H, 1);
+    if (!ok) continue;
+    const px = readFrame(W, H);
+    const c = thumbCanvases[g.id];
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(W, H);
+    img.data.set(px);
+    ctx.putImageData(img, 0, 0);
+  }
+  S.gen = keepGen; S.frame = keepFrame; S.post = keepPost; S.out.bg = keepBg;
+  markDirty();
+}
+
+/* ---------------- parameter panels ---------------- */
+function buildParams() {
+  const g = GEN_BY_ID[S.gen];
+  const host = $('#params');
+  buildCtlList(host, g.params, S.params[g.id], pushUrlSoon);
+  if (g.flame) {
+    const note = el('div', 'note');
+    note.innerHTML = '<b>Variation A/B</b> pick which flame variations the transforms use. ' +
+      'Quality is passes of 262k points; iterations is chaos-game depth. ' +
+      'Both cost render time, nothing else.';
+    host.appendChild(note);
+    const list = el('div', 'note');
+    list.textContent = 'A = ' + (FLAME_VARS[Math.round(S.params.flame.va)] || '?') +
+                    '   B = ' + (FLAME_VARS[Math.round(S.params.flame.vb)] || '?');
+    list.id = 'flameVarNames';
+    host.appendChild(list);
+  }
+}
+function refreshFlameNames() {
+  const n = $('#flameVarNames'); if (!n) return;
+  n.textContent = 'A = ' + (FLAME_VARS[Math.round(S.params.flame.va)] || '?') +
+               '   B = ' + (FLAME_VARS[Math.round(S.params.flame.vb)] || '?');
+}
+
+/* ---------------- palette editor ---------------- */
+function drawPalBar() {
+  $('#palBar').style.background = lutCss(LUT);
+}
+function rebuildLut() {
+  LUT = buildLut(S.pal.stops, S.pal.space);
+  uploadPalette(); drawPalBar(); markDirty(); scheduleThumbs();
+}
+function buildStops() {
+  const host = $('#stops'); host.innerHTML = '';
+  S.pal.stops.forEach((st, i) => {
+    const row = el('div', 'stopRow');
+    const col = document.createElement('input');
+    col.type = 'color'; col.value = st.c;
+    col.addEventListener('input', () => { st.c = col.value; S.pal.preset = -1; rebuildLut(); pushUrlSoon(); });
+    const rng = document.createElement('input');
+    rng.type = 'range'; rng.min = 0; rng.max = 1; rng.step = 0.001; rng.value = st.p;
+    const pos = el('span', 'pos', st.p.toFixed(2));
+    rng.addEventListener('input', () => {
+      st.p = clamp(parseFloat(rng.value), 0, 0.999);
+      pos.textContent = st.p.toFixed(2); S.pal.preset = -1; rebuildLut(); pushUrlSoon();
+    });
+    const x = el('button', 'x', '×');
+    x.title = 'remove stop';
+    x.addEventListener('click', () => {
+      if (S.pal.stops.length <= 2) { toast('A palette needs at least two stops.'); return; }
+      S.pal.stops.splice(i, 1); S.pal.preset = -1; buildStops(); rebuildLut(); pushUrlSoon();
+    });
+    row.appendChild(col); row.appendChild(rng); row.appendChild(pos); row.appendChild(x);
+    host.appendChild(row);
+  });
+}
+function buildPalPresets() {
+  const host = $('#palPresets'); host.innerHTML = '';
+  PAL_PRESETS.forEach((p, i) => {
+    const b = el('button', 'pp' + (S.pal.preset === i ? ' on' : ''));
+    const stops = p.s.map((c, j) => ({ p: j / p.s.length, c }));
+    b.style.background = lutCss(buildLut(stops, 'oklab'));
+    b.title = p.n;
+    b.appendChild(el('span', '', p.n));
+    b.addEventListener('click', () => {
+      S.pal.stops = stops.map(s => ({ p: s.p, c: s.c }));
+      S.pal.preset = i;
+      buildStops(); buildPalPresets(); rebuildLut(); pushUrl();
+    });
+    host.appendChild(b);
+  });
+}
+
+/* ---------------- sections ---------------- */
+function wireSections() {
+  $$('.sec').forEach(sec => {
+    sec.querySelector('.head').addEventListener('click', () => {
+      sec.classList.toggle('closed');
+      try { localStorage.setItem('eloom.sec.' + sec.dataset.sec, sec.classList.contains('closed') ? '1' : '0'); } catch (e) {}
+    });
+    try {
+      const v = localStorage.getItem('eloom.sec.' + sec.dataset.sec);
+      if (v === '1') sec.classList.add('closed');
+      if (v === '0') sec.classList.remove('closed');
+    } catch (e) {}
+  });
+}
+
+/* ---------------- output panel ---------------- */
+const SIZE_PRESETS = [
+  ['1920 x 1080  full HD', 1920, 1080], ['1600 x 900', 1600, 900],
+  ['1280 x 720  HD', 1280, 720], ['960 x 540', 960, 540],
+  ['854 x 480', 854, 480], ['640 x 360', 640, 360],
+  ['1080 x 1080  square', 1080, 1080], ['720 x 720  square', 720, 720],
+  ['1080 x 1920  vertical', 1080, 1920], ['608 x 1080  vertical', 608, 1080],
+  ['2560 x 1440  QHD', 2560, 1440], ['3840 x 2160  4K', 3840, 2160]
+];
+function buildSizePresets() {
+  const s = $('#sizePreset'); s.innerHTML = '';
+  SIZE_PRESETS.forEach(([n, w, h]) => {
+    const o = document.createElement('option'); o.value = w + 'x' + h; o.textContent = n; s.appendChild(o);
+  });
+  const o = document.createElement('option'); o.value = 'custom'; o.textContent = 'Custom'; s.appendChild(o);
+  syncSizePreset();
+}
+function syncSizePreset() {
+  const key = S.out.w + 'x' + S.out.h;
+  const s = $('#sizePreset');
+  s.value = SIZE_PRESETS.some(p => p[1] + 'x' + p[2] === key) ? key : 'custom';
+}
+
+const GIF_BPP = { 256: 4.4, 192: 4.1, 128: 3.7, 96: 3.4, 64: 3.0, 48: 2.7, 32: 2.3, 16: 1.7, 8: 1.1 };
+const DITHER_MUL = { fs: 1.0, sierra: 0.95, atkinson: 0.85, bayer8: 0.72, bayer4: 0.68, none: 0.5 };
+function updateEstimate() {
+  const W = S.out.w, H = S.out.h, N = totalFrames(), px = W * H;
+  const bpp = (GIF_BPP[S.gif.colors] || 4) * (DITHER_MUL[S.gif.dither] || 1);
+  const gifB = N * px * bpp / 8 + S.gif.colors * 3 + 800;
+  const vidB = px * S.out.fps * S.vid.q * S.out.dur / 8;
+  const pngB = N * px * 1.6;
+  const csTotal = Math.round(S.out.dur * 100);
+  const minDelay = Math.floor(csTotal / N);
+  const e = $('#est');
+  const heavy = GEN_BY_ID[S.gen].heavy;
+  const rough = px * S.out.ss * S.out.ss;
+  const guessMs = (heavy ? 4.2 : 2.3) * rough / 1e6 + 1.2;   // measured on a mid-range GPU
+  const renderS = guessMs * N / 1000;
+  let rows = '';
+  rows += '<div><span>frames</span><b>' + N + '</b></div>';
+  rows += '<div><span>render size</span><b>' + Math.round(W * S.out.ss) + ' x ' + Math.round(H * S.out.ss) + '</b></div>';
+  rows += '<div><span>GIF (rough)</span><b class="' + (gifB > 2.5e8 ? 'b' : gifB > 6e7 ? 'w' : '') + '">' + fmtBytes(gifB) + '</b></div>';
+  rows += '<div><span>WebM (rough)</span><b>' + fmtBytes(vidB) + '</b></div>';
+  rows += '<div><span>PNG zip (rough)</span><b class="' + (pngB > 2e9 ? 'b' : '') + '">' + fmtBytes(pngB) + '</b></div>';
+  rows += '<div><span>frame delay</span><b>' + (csTotal / N).toFixed(2) + ' cs</b></div>';
+  e.innerHTML = rows;
+  let warn = '';
+  if (minDelay < 2) warn += 'At ' + S.out.fps + ' fps the GIF frame delay rounds below 2 centiseconds, which many players silently turn into 10 cs. Stay at 50 fps or less. ';
+  if (gifB > 1.2e8) warn += 'This GIF will be very large. Drop the colour count, the size, or the frame rate. ';
+  if (pngB > 4e9) warn += 'The PNG zip would exceed the 4 GB single-file ZIP limit and will be refused. ';
+  if (warn) e.insertAdjacentHTML('beforeend', '<div class="warnbox">' + warn + '</div>');
+  e.insertAdjacentHTML('beforeend', '<div class="note">Rough estimate at ~' + fmtTime(renderS) + ' of rendering. Real GIF size is measured while it encodes.</div>');
+}
+
+/* ---------------- state <-> url ---------------- */
+function snapshot() {
+  // only the active pattern's parameters travel: carrying all eighteen would
+  // make the shareable link four times longer for nothing
+  const p = {}; p[S.gen] = S.params[S.gen];
+  return {
+    v: 1, gen: S.gen, seed: S.seed,
+    params: p, frame: S.frame, post: S.post, palX: S.palX, alpha: S.alpha,
+    pal: { stops: S.pal.stops, space: S.pal.space, preset: S.pal.preset },
+    out: S.out, gif: S.gif, vid: { q: S.vid.q }
+  };
+}
+function applySnapshot(o) {
+  if (!o) return;
+  if (o.gen && GEN_BY_ID[o.gen]) S.gen = o.gen;
+  if (o.seed) S.seed = o.seed;
+  if (o.params) for (const k in o.params) if (S.params[k]) Object.assign(S.params[k], o.params[k]);
+  if (o.frame) Object.assign(S.frame, o.frame);
+  if (o.post) Object.assign(S.post, o.post);
+  if (o.palX) Object.assign(S.palX, o.palX);
+  if (o.alpha) Object.assign(S.alpha, o.alpha);
+  if (o.pal && o.pal.stops && o.pal.stops.length) {
+    S.pal.stops = o.pal.stops.map(s => ({ p: +s.p, c: s.c }));
+    S.pal.space = o.pal.space || 'oklab';
+    S.pal.preset = (o.pal.preset == null ? -1 : o.pal.preset);
+  }
+  if (o.out) Object.assign(S.out, o.out);
+  if (o.gif) Object.assign(S.gif, o.gif);
+  if (o.vid && o.vid.q) S.vid.q = o.vid.q;
+  refreshAllUI();
+}
+function refreshAllUI() {
+  $$('#gens .gen').forEach(e => e.classList.toggle('on', e.dataset.id === S.gen));
+  $('#genTag').textContent = GEN_BY_ID[S.gen].name;
+  buildParams();
+  $('#frameCtls')._syncAll && $('#frameCtls')._syncAll();
+  $('#postCtls')._syncAll && $('#postCtls')._syncAll();
+  $('#palExtra')._syncAll && $('#palExtra')._syncAll();
+  $('#alphaCtls')._syncAll && $('#alphaCtls')._syncAll();
+  buildStops(); buildPalPresets(); rebuildLut();
+  $('#palSpace').value = S.pal.space;
+  $('#seedInput') && ($('#seedInput').value = S.seed);
+  $('#outW').value = S.out.w; $('#outH').value = S.out.h;
+  $('#outDur').value = S.out.dur; $('#outFps').value = S.out.fps;
+  $('#outSS').value = S.out.ss; $('#bgMode').value = S.out.bg;
+  $('#gifColors').value = S.gif.colors; $('#gifDither').value = S.gif.dither;
+  $('#gifSharpPal').checked = S.gif.kmeans;
+  $('#vidQ').value = S.vid.q;
+  $('#alphaCtls').style.display = S.out.bg === 'alpha' ? '' : 'none';
+  syncSizePreset(); updateEstimate(); layout(); markDirty();
+}
+let urlTimer = 0;
+function pushUrlSoon() { clearTimeout(urlTimer); urlTimer = setTimeout(pushUrl, 400); }
+function pushUrl() {
+  try {
+    const json = JSON.stringify(snapshot());
+    const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    history.replaceState(null, '', '#' + b64);
+  } catch (e) {}
+  updateEstimate();
+}
+function readUrl() {
+  const h = location.hash.slice(1);
+  if (!h) return false;
+  try {
+    const b64 = h.replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(escape(atob(b64)));
+    applySnapshot(JSON.parse(json));
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ---------------- randomize ---------------- */
+function randomizeParams(rnd, gid) {
+  const g = GEN_BY_ID[gid];
+  const st = S.params[gid];
+  g.params.forEach(p => {
+    if (p.int) {
+      // keep motion counts low and interesting
+      const span = p.mx - p.mn;
+      let v = p.mn + Math.floor(rnd() * (span + 1));
+      if (/loop/i.test(p.n) && span > 4) v = p.mn + Math.floor(rnd() * Math.min(4, span + 1));
+      st[p.k] = v;
+    } else {
+      const t = rnd();
+      // bias toward the middle so nothing lands on a degenerate extreme
+      const b = 0.5 + (t - 0.5) * 0.86;
+      st[p.k] = p.mn + b * (p.mx - p.mn);
+    }
+  });
+  if (gid === 'phyllo' && st.n > 200) st.n = 200;
+
+  /* A few patterns have parameter regions that are simply dead, and a blind
+     roll lands in them often enough to be annoying. Pull those back. */
+  if (g.flame) {
+    if (st.q > 5) st.q = 5;
+    if (st.it > 30) st.it = 30;
+    st.exp = 0.5 + rnd() * 1.1;
+    st.gam = 2.0 + rnd() * 1.2;
+    st.sym = rnd() < 0.4 ? 1 : 2 + Math.floor(rnd() * 7);
+  }
+  if (gid === 'julia') {
+    /* Julia sets are only interesting for c near the boundary of the
+       Mandelbrot set, so walk the main cardioid instead of rolling c
+       loose in the plane and landing on a flat wash. */
+    const th = rnd() * TAU;
+    st.cx = 0.5 * Math.cos(th) - 0.25 * Math.cos(2 * th);
+    st.cy = 0.5 * Math.sin(th) - 0.25 * Math.sin(2 * th);
+    st.r = 0.02 + rnd() * 0.12;
+    st.it = 60 + Math.floor(rnd() * 120);
+    st.z = 0.7 + rnd() * 1.1;
+  }
+}
+
+/* Randomised looks are no use if they come out blown white or nearly black.
+   Probe one small frame and pull the exposure back toward a usable mean. */
+function balanceExposure() {
+  for (let pass = 0; pass < 2; pass++) {
+    if (!render(0.3, 64, 36, 1)) return;
+    const px = readFrame(64, 36);
+    let sum = 0;
+    for (let i = 0; i < px.length; i += 4) sum += px[i] * 0.2126 + px[i + 1] * 0.7152 + px[i + 2] * 0.0722;
+    const mean = sum / (px.length / 4);
+    if (mean > 200) S.post.exposure = clamp(S.post.exposure * (150 / mean), 0.05, 4);
+    else if (mean < 26) S.post.exposure = clamp(S.post.exposure * (60 / Math.max(mean, 2)), 0.05, 4);
+    else return;
+  }
+}
+function randomizeFrame(rnd) {
+  S.frame.zoom = 0.55 + rnd() * 1.6;
+  S.frame.rot = (rnd() - 0.5) * 2;
+  S.frame.spin = rnd() < 0.55 ? 0 : (rnd() < 0.5 ? 1 : -1);
+  S.frame.panx = (rnd() - 0.5) * 0.5;
+  S.frame.pany = (rnd() - 0.5) * 0.5;
+  S.frame.mirror = rnd() < 0.45 ? [0, 3, 4, 5, 6, 8, 12][(rnd() * 7) | 0] : 0;
+  S.frame.mrot = (rnd() - 0.5) * 2;
+  S.frame.mspin = rnd() < 0.75 ? 0 : (rnd() < 0.5 ? 1 : -1);
+}
+function randomizePost(rnd) {
+  S.post.bloom = rnd() < 0.25 ? 0 : 0.2 + rnd() * 1.1;
+  S.post.thresh = 0.25 + rnd() * 0.5;
+  S.post.knee = 0.15 + rnd() * 0.4;
+  S.post.radius = 0.8 + rnd() * 2.4;
+  S.post.exposure = 0.8 + rnd() * 0.6;
+  S.post.contrast = 0.9 + rnd() * 0.5;
+  S.post.sat = 0.8 + rnd() * 0.7;
+  S.post.gamma = 0.8 + rnd() * 0.5;
+  S.post.vig = rnd() < 0.3 ? 0 : rnd() * 0.5;
+  S.post.grain = rnd() < 0.5 ? 0 : rnd() * 0.14;
+  S.post.chroma = rnd() < 0.5 ? 0 : rnd() * 1.0;
+  S.post.posterize = rnd() < 0.85 ? 0 : 3 + ((rnd() * 8) | 0);
+  S.post.scan = rnd() < 0.85 ? 0 : rnd() * 0.4;
+  S.palX.cycles = rnd() < 0.5 ? 0 : (rnd() < 0.5 ? 1 : -1) * (1 + ((rnd() * 2) | 0));
+  S.palX.offset = rnd();
+}
+function doRandomize(full) {
+  S.seed = randSeedWord();
+  const rnd = mulberry32(hashStr(S.seed));
+  if (full) {
+    const pick = GENS.filter(g => !g.flame || Math.random() < 0.25);
+    S.gen = pick[(rnd() * pick.length) | 0].id;
+    const pi = (rnd() * PAL_PRESETS.length) | 0;
+    if (rnd() < 0.6) {
+      S.pal.stops = PAL_PRESETS[pi].s.map((c, j) => ({ p: j / PAL_PRESETS[pi].s.length, c }));
+      S.pal.preset = pi;
+    } else {
+      S.pal.stops = randomPalette(rnd); S.pal.preset = -1;
+    }
+    randomizeFrame(rnd);
+    randomizePost(rnd);
+  }
+  randomizeParams(rnd, S.gen);
+  balanceExposure();
+  refreshAllUI(); pushUrl(); scheduleThumbs();
+}
+
+/* ---------------- layout ---------------- */
+function layout() {
+  const wrap = $('.canvasWrap');
+  const r = wrap.getBoundingClientRect();
+  const availW = Math.max(80, r.width - 32), availH = Math.max(80, r.height - 32);
+  const ar = S.out.w / S.out.h;
+  let w = availW, h = w / ar;
+  if (h > availH) { h = availH; w = h * ar; }
+  const f = $('#viewFrame');
+  f.style.width = Math.round(w) + 'px';
+  f.style.height = Math.round(h) + 'px';
+  cvs.style.width = Math.round(w) + 'px';
+  cvs.style.height = Math.round(h) + 'px';
+}
+
+/* ---------------- playback ---------------- */
+let fpsAvg = 0;
+function previewDims() {
+  const q = parseFloat($('#previewQ').value) || 1;
+  let w = Math.max(64, Math.round(S.out.w * q)), h = Math.max(36, Math.round(S.out.h * q));
+  const cap = 1600;
+  if (Math.max(w, h) > cap) { const k = cap / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
+  return [w, h];
+}
+function tick(ts) {
+  requestAnimationFrame(tick);
+  if (busy) { lastRAF = ts; return; }
+  const dt = lastRAF ? (ts - lastRAF) / 1000 : 0;
+  lastRAF = ts;
+  const N = totalFrames();
+  if (seamMode) {
+    seamTick += dt;
+    const phase = Math.floor(seamTick * 2) % 2;
+    const want = phase === 0 ? 0 : (N - 1) / N;
+    if (Math.abs(tNow - want) > 1e-9) { tNow = want; dirty = true; }
+    $('#seamBadge').className = 'show';
+    $('#seamBadge').textContent = phase === 0 ? 'seam check: frame 0' : 'seam check: frame ' + (N - 1);
+  } else if (playing) {
+    tNow = (tNow + dt / Math.max(S.out.dur, 0.01)) % 1;
+    dirty = true;
+  }
+  if (!dirty) return;
+  dirty = false;
+  const [pw, ph] = previewDims();
+  const t0 = performance.now();
+  const ok = render(tNow, pw, ph, S.out.ss);
+  const ms = performance.now() - t0;
+  fpsAvg = fpsAvg ? fpsAvg * 0.9 + ms * 0.1 : ms;
+  if (!ok) {
+    showOverlay('Shader problem', lastRenderErr + '\nOpen the console for the full compile log.');
+  }
+  const fi = Math.floor(tNow * N + 1e-6) % N;
+  $('#tStat').innerHTML = 'frame <b>' + fi + '</b>/' + N;
+  const scr = $('#scrub');
+  if (document.activeElement !== scr) {
+    scr.value = Math.round(tNow * 1000);
+    scr.style.setProperty('--pct', (tNow * 100).toFixed(1) + '%');
+  }
+  const f = 1000 / Math.max(fpsAvg, 0.01);
+  const fs = $('#fpsStat');
+  fs.textContent = f > 999 ? '999+' : f.toFixed(0);
+  fs.className = 'fps' + (f < 12 ? ' bad' : f < 26 ? ' slow' : '');
+}
+function showOverlay(big, small) {
+  $('#ovBig').textContent = big; $('#ovSmall').textContent = small || '';
+  $('#overlayMsg').classList.add('show');
+}
+function hideOverlay() { $('#overlayMsg').classList.remove('show'); }
+/* =====================================================================
+   GIF ENGINE
+   ---------------------------------------------------------------------
+   ALGO_SRC is shared verbatim between the worker pool and a main-thread
+   fallback (blob workers are blocked on file:// in Chrome). It holds:
+     - a 6-6-6 histogram median cut with optional k-means refinement
+     - a 262144-entry nearest-colour cache
+     - error-diffusion and ordered dithering
+     - the GIF LZW compressor
+   ===================================================================== */
+const ALGO_SRC = String.raw`
+function binR(i){ return ((i>>12)&63)*4+2; }
+function binG(i){ return ((i>>6)&63)*4+2; }
+function binB(i){ return (i&63)*4+2; }
+var WR=0.299, WG=0.587, WB=0.114;
+
+function buildPalette(hist, K, refine){
+  var pop = [];
+  for(var i=0;i<262144;i++){ if(hist[i]) pop.push(i); }
+  var n = pop.length;
+  if(n === 0){ return { pal:new Uint8Array(K*3), cache:new Uint8Array(262144) }; }
+  if(n <= K){
+    var pal0 = new Uint8Array(K*3);
+    for(var j=0;j<n;j++){ pal0[j*3]=binR(pop[j]); pal0[j*3+1]=binG(pop[j]); pal0[j*3+2]=binB(pop[j]); }
+    for(var j2=n;j2<K;j2++){ pal0[j2*3]=pal0[0]; pal0[j2*3+1]=pal0[1]; pal0[j2*3+2]=pal0[2]; }
+    return { pal:pal0, cache:makeCache(pal0, Math.max(n,1), K), used:n };
+  }
+  var order = new Int32Array(pop);
+  var R = new Uint8Array(n), G = new Uint8Array(n), B = new Uint8Array(n);
+  var C = new Float64Array(n);
+  for(var k=0;k<n;k++){ var b=order[k]; R[k]=binR(b); G[k]=binG(b); B[k]=binB(b); C[k]=hist[b]; }
+
+  // boxes over ranges of an index permutation
+  var idx = new Int32Array(n);
+  for(var q=0;q<n;q++) idx[q]=q;
+  var boxes = [ mkBox(0, n) ];
+
+  function mkBox(s,e){
+    var rmin=255,rmax=0,gmin=255,gmax=0,bmin=255,bmax=0,cnt=0;
+    for(var t=s;t<e;t++){
+      var u=idx[t];
+      var r=R[u],g=G[u],b2=B[u];
+      if(r<rmin)rmin=r; if(r>rmax)rmax=r;
+      if(g<gmin)gmin=g; if(g>gmax)gmax=g;
+      if(b2<bmin)bmin=b2; if(b2>bmax)bmax=b2;
+      cnt+=C[u];
+    }
+    var dr=(rmax-rmin)*WR, dg=(gmax-gmin)*WG, db=(bmax-bmin)*WB;
+    var ax = dr>=dg ? (dr>=db?0:2) : (dg>=db?1:2);
+    var span = Math.max(dr,dg,db);
+    return { s:s, e:e, cnt:cnt, ax:ax, span:span, pri:cnt*(span+1) };
+  }
+  function splitBox(bx){
+    var s=bx.s, e=bx.e, ax=bx.ax;
+    var sub = Array.prototype.slice.call(idx.subarray(s,e));
+    var key = ax===0?R:ax===1?G:B;
+    sub.sort(function(a,b){ return key[a]-key[b]; });
+    for(var t=0;t<sub.length;t++) idx[s+t]=sub[t];
+    var half = bx.cnt/2, acc=0, cut=s;
+    for(var t2=s;t2<e-1;t2++){ acc+=C[idx[t2]]; if(acc>=half){ cut=t2+1; break; } cut=t2+1; }
+    if(cut<=s) cut=s+1;
+    if(cut>=e) cut=e-1;
+    return [ mkBox(s,cut), mkBox(cut,e) ];
+  }
+  while(boxes.length < K){
+    var best=-1, bp=-1;
+    for(var t3=0;t3<boxes.length;t3++){
+      if(boxes[t3].e - boxes[t3].s < 2) continue;
+      if(boxes[t3].span <= 0) continue;
+      if(boxes[t3].pri > bp){ bp=boxes[t3].pri; best=t3; }
+    }
+    if(best < 0) break;
+    var two = splitBox(boxes[best]);
+    boxes.splice(best,1,two[0],two[1]);
+  }
+  var KC = boxes.length;
+  var cr = new Float64Array(KC), cg = new Float64Array(KC), cb = new Float64Array(KC), cw = new Float64Array(KC);
+  for(var t4=0;t4<KC;t4++){
+    var bx=boxes[t4], sr=0,sg=0,sb=0,sw=0;
+    for(var u2=bx.s;u2<bx.e;u2++){
+      var v=idx[u2], w=C[v];
+      sr+=R[v]*w; sg+=G[v]*w; sb+=B[v]*w; sw+=w;
+    }
+    if(sw>0){ cr[t4]=sr/sw; cg[t4]=sg/sw; cb[t4]=sb/sw; cw[t4]=sw; }
+    else { cr[t4]=R[idx[bx.s]]; cg[t4]=G[idx[bx.s]]; cb[t4]=B[idx[bx.s]]; cw[t4]=1; }
+  }
+  if(refine){
+    var ar=new Float64Array(KC), ag=new Float64Array(KC), ab=new Float64Array(KC), aw=new Float64Array(KC);
+    for(var it=0; it<4; it++){
+      ar.fill(0); ag.fill(0); ab.fill(0); aw.fill(0);
+      for(var p2=0;p2<n;p2++){
+        var pr=R[p2], pg=G[p2], pb=B[p2], pw=C[p2];
+        var bi=0, bd=1e30;
+        for(var c2=0;c2<KC;c2++){
+          var dr2=(pr-cr[c2]), dg2=(pg-cg[c2]), db2=(pb-cb[c2]);
+          var d=dr2*dr2*WR + dg2*dg2*WG + db2*db2*WB;
+          if(d<bd){ bd=d; bi=c2; }
+        }
+        ar[bi]+=pr*pw; ag[bi]+=pg*pw; ab[bi]+=pb*pw; aw[bi]+=pw;
+      }
+      for(var c3=0;c3<KC;c3++){
+        if(aw[c3]>0){ cr[c3]=ar[c3]/aw[c3]; cg[c3]=ag[c3]/aw[c3]; cb[c3]=ab[c3]/aw[c3]; }
+      }
+    }
+  }
+  var pal = new Uint8Array(K*3);
+  for(var c4=0;c4<KC;c4++){
+    pal[c4*3]   = Math.max(0,Math.min(255,Math.round(cr[c4])));
+    pal[c4*3+1] = Math.max(0,Math.min(255,Math.round(cg[c4])));
+    pal[c4*3+2] = Math.max(0,Math.min(255,Math.round(cb[c4])));
+  }
+  for(var c5=KC;c5<K;c5++){ pal[c5*3]=pal[0]; pal[c5*3+1]=pal[1]; pal[c5*3+2]=pal[2]; }
+  return { pal:pal, cache:makeCache(pal, KC, K), used:KC };
+}
+
+function makeCache(pal, used, K){
+  var cache = new Uint8Array(262144);
+  var n = used>0?used:K;
+  for(var i=0;i<262144;i++){
+    var r=binR(i), g=binG(i), b=binB(i);
+    var bi=0, bd=1e30;
+    for(var c=0;c<n;c++){
+      var dr=r-pal[c*3], dg=g-pal[c*3+1], db=b-pal[c*3+2];
+      var d=dr*dr*WR + dg*dg*WG + db*db*WB;
+      if(d<bd){ bd=d; bi=c; }
+    }
+    cache[i]=bi;
+  }
+  return cache;
+}
+
+var BAYER8 = [
+   0,32, 8,40, 2,34,10,42, 48,16,56,24,50,18,58,26,
+  12,44, 4,36,14,46, 6,38, 60,28,52,20,62,30,54,22,
+   3,35,11,43, 1,33, 9,41, 51,19,59,27,49,17,57,25,
+  15,47, 7,39,13,45, 5,37, 63,31,55,23,61,29,53,21];
+var BAYER4 = [0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5];
+
+/* kernel: triples of dx, dy, weight */
+var KERNELS = {
+  fs:       [1,0,7/16, -1,1,3/16, 0,1,5/16, 1,1,1/16],
+  sierra:   [1,0,2/4, -1,1,1/4, 0,1,1/4],
+  atkinson: [1,0,1/8, 2,0,1/8, -1,1,1/8, 0,1,1/8, 1,1,1/8, 0,2,1/8]
+};
+
+function encodeFrame(rgba, w, h, pal, cache, dither, strength, transIdx, alphaCut, minCodeSize){
+  var n = w*h;
+  var out = new Uint8Array(n);
+  var useTrans = transIdx >= 0;
+
+  if(dither === 'bayer8' || dither === 'bayer4'){
+    var M = dither === 'bayer8' ? BAYER8 : BAYER4;
+    var MS = dither === 'bayer8' ? 8 : 4;
+    var MN = MS*MS;
+    var amp = strength * (255/ (MN/4) ) * 0.5;
+    for(var y=0;y<h;y++){
+      for(var x=0;x<w;x++){
+        var i=(y*w+x);
+        var o=i*4;
+        if(useTrans && rgba[o+3] < alphaCut){ out[i]=transIdx; continue; }
+        var thr = (M[(y%MS)*MS + (x%MS)]/MN - 0.5) * amp;
+        var r = rgba[o]+thr, g = rgba[o+1]+thr, b = rgba[o+2]+thr;
+        r = r<0?0:r>255?255:r; g = g<0?0:g>255?255:g; b = b<0?0:b>255?255:b;
+        out[i] = cache[((r>>2)<<12) | ((g>>2)<<6) | (b>>2)];
+      }
+    }
+  } else if(dither === 'none' || !KERNELS[dither] || strength <= 0){
+    for(var i2=0;i2<n;i2++){
+      var o2=i2*4;
+      if(useTrans && rgba[o2+3] < alphaCut){ out[i2]=transIdx; continue; }
+      out[i2] = cache[((rgba[o2]>>2)<<12) | ((rgba[o2+1]>>2)<<6) | (rgba[o2+2]>>2)];
+    }
+  } else {
+    var K = KERNELS[dither];
+    var rows = 3;
+    var stride = (w+4)*3;
+    var err = new Float32Array(stride*rows);
+    var base = 0;
+    for(var y2=0;y2<h;y2++){
+      var serp = (y2 & 1) === 1;
+      var x0 = serp ? w-1 : 0, x1 = serp ? -1 : w, dx = serp ? -1 : 1;
+      var cur = (base % rows) * stride;
+      for(var x2=x0; x2!==x1; x2+=dx){
+        var i3=(y2*w+x2), o3=i3*4;
+        var ei = cur + (x2+2)*3;
+        if(useTrans && rgba[o3+3] < alphaCut){ out[i3]=transIdx; err[ei]=0; err[ei+1]=0; err[ei+2]=0; continue; }
+        var rr = rgba[o3]   + err[ei];
+        var gg = rgba[o3+1] + err[ei+1];
+        var bb = rgba[o3+2] + err[ei+2];
+        err[ei]=0; err[ei+1]=0; err[ei+2]=0;
+        var rc = rr<0?0:rr>255?255:rr;
+        var gc = gg<0?0:gg>255?255:gg;
+        var bc = bb<0?0:bb>255?255:bb;
+        var pi = cache[((rc>>2)<<12) | ((gc>>2)<<6) | (bc>>2)];
+        out[i3]=pi;
+        var er = (rr - pal[pi*3])   * strength;
+        var eg = (gg - pal[pi*3+1]) * strength;
+        var eb = (bb - pal[pi*3+2]) * strength;
+        for(var kk=0;kk<K.length;kk+=3){
+          var kdx = serp ? -K[kk] : K[kk];
+          var kdy = K[kk+1], kw = K[kk+2];
+          var tx = x2 + kdx;
+          if(tx < 0 || tx >= w) continue;
+          var trow = ((base + kdy) % rows) * stride;
+          var ti = trow + (tx+2)*3;
+          err[ti]   += er*kw;
+          err[ti+1] += eg*kw;
+          err[ti+2] += eb*kw;
+        }
+      }
+      // retire the row we just finished so it can be reused two rows later
+      var clr = (base % rows) * stride;
+      for(var z=0; z<stride; z++) err[clr+z]=0;
+      base++;
+    }
+  }
+  return lzw(out, minCodeSize);
+}
+
+/* ---- GIF LZW (Weiner's reference algorithm) ---- */
+function lzw(pixels, minCodeSize){
+  var cap = 1024, len = 0, buf = new Uint8Array(cap);
+  function push(b){ if(len===cap){ cap*=2; var nb=new Uint8Array(cap); nb.set(buf); buf=nb; } buf[len++]=b; }
+
+  var accum = new Uint8Array(256), aCount = 0;
+  function charOut(c){ accum[aCount++]=c; if(aCount>=254) flushChar(); }
+  function flushChar(){
+    if(aCount>0){
+      push(aCount);
+      for(var i=0;i<aCount;i++) push(accum[i]);
+      aCount=0;
+    }
+  }
+
+  var BITS=12, HSIZE=5003, maxmaxcode=1<<BITS;
+  var htab=new Int32Array(HSIZE), codetab=new Int32Array(HSIZE);
+  var nBits, maxcode, freeEnt=0, clearFlg=false, gInitBits, ClearCode, EOFCode;
+  var curAccum=0, curBits=0;
+  var masks=[0x0000,0x0001,0x0003,0x0007,0x000F,0x001F,0x003F,0x007F,0x00FF,
+             0x01FF,0x03FF,0x07FF,0x0FFF,0x1FFF,0x3FFF,0x7FFF,0xFFFF];
+  function MAXCODE(nb){ return (1<<nb)-1; }
+  function clHash(hs){ for(var i=0;i<hs;i++) htab[i]=-1; }
+  function output(code){
+    curAccum &= masks[curBits];
+    if(curBits>0) curAccum |= (code<<curBits); else curAccum = code;
+    curBits += nBits;
+    while(curBits>=8){ charOut(curAccum & 0xff); curAccum >>= 8; curBits -= 8; }
+    if(freeEnt > maxcode || clearFlg){
+      if(clearFlg){ nBits=gInitBits; maxcode=MAXCODE(nBits); clearFlg=false; }
+      else { nBits++; maxcode = (nBits===BITS) ? maxmaxcode : MAXCODE(nBits); }
+    }
+    if(code===EOFCode){
+      while(curBits>0){ charOut(curAccum & 0xff); curAccum >>= 8; curBits -= 8; }
+      flushChar();
+    }
+  }
+  function clBlock(){ clHash(HSIZE); freeEnt = ClearCode+2; clearFlg = true; output(ClearCode); }
+
+  push(minCodeSize);
+  gInitBits = minCodeSize+1;
+  clearFlg=false; nBits=gInitBits; maxcode=MAXCODE(nBits);
+  ClearCode = 1<<minCodeSize; EOFCode = ClearCode+1; freeEnt = ClearCode+2;
+  aCount=0;
+  var hshift=0;
+  for(var f=HSIZE; f<65536; f*=2) hshift++;
+  hshift = 8 - hshift;
+  clHash(HSIZE);
+  output(ClearCode);
+
+  var p = 0, np = pixels.length;
+  var ent = np>0 ? pixels[p++] : 0;
+  outer:
+  while(p < np){
+    var c = pixels[p++];
+    var fcode = (c<<BITS) + ent;
+    var i = (c<<hshift) ^ ent;
+    if(htab[i] === fcode){ ent = codetab[i]; continue; }
+    if(htab[i] >= 0){
+      var disp = HSIZE - i;
+      if(i===0) disp = 1;
+      do {
+        i -= disp; if(i<0) i += HSIZE;
+        if(htab[i] === fcode){ ent = codetab[i]; continue outer; }
+      } while(htab[i] >= 0);
+    }
+    output(ent);
+    ent = c;
+    if(freeEnt < maxmaxcode){ codetab[i]=freeEnt++; htab[i]=fcode; }
+    else clBlock();
+  }
+  output(ent);
+  output(EOFCode);
+  push(0);
+  return buf.slice(0, len);
+}
+`;
+
+const WORKER_GLUE = `
+self.onmessage = function(ev){
+  var m = ev.data;
+  if(m.cmd === 'pal'){
+    var r = buildPalette(new Uint32Array(m.hist), m.K, m.refine);
+    self.postMessage({id:m.id, pal:r.pal.buffer, cache:r.cache.buffer, used:r.used||m.K},
+      [r.pal.buffer, r.cache.buffer]);
+  } else if(m.cmd === 'setpal'){
+    self.PAL = new Uint8Array(m.pal); self.CACHE = new Uint8Array(m.cache);
+    self.postMessage({id:m.id, ok:1});
+  } else if(m.cmd === 'frame'){
+    var bytes = encodeFrame(new Uint8Array(m.buf), m.w, m.h, self.PAL, self.CACHE,
+      m.dither, m.strength, m.transIdx, m.alphaCut, m.mcs);
+    self.postMessage({id:m.id, idx:m.idx, bytes:bytes.buffer}, [bytes.buffer]);
+  }
+};
+`;
+
+let ALGO = null;
+function getAlgo() {
+  if (!ALGO) ALGO = new Function(ALGO_SRC + '\nreturn {buildPalette:buildPalette, encodeFrame:encodeFrame};')();
+  return ALGO;
+}
+
+/* ---- worker pool with graceful fallback ---- */
+let WORKERS = null, WORKERS_TRIED = false, WORKER_URL = null;
+function getWorkers() {
+  if (WORKERS_TRIED) return WORKERS;
+  WORKERS_TRIED = true;
+  try {
+    const blob = new Blob([ALGO_SRC + '\n' + WORKER_GLUE], { type: 'text/javascript' });
+    WORKER_URL = URL.createObjectURL(blob);
+    const n = clamp((navigator.hardwareConcurrency || 4) - 1, 1, 8);
+    const list = [];
+    for (let i = 0; i < n; i++) list.push(new Worker(WORKER_URL));
+    // prove one actually runs
+    WORKERS = list;
+  } catch (e) {
+    console.warn('workers unavailable, encoding on the main thread:', e);
+    WORKERS = null;
+  }
+  return WORKERS;
+}
+function wkCall(w, msg, transfer) {
+  return new Promise((res, rej) => {
+    const id = Math.random().toString(36).slice(2);
+    msg.id = id;
+    const on = ev => { if (ev.data && ev.data.id === id) { w.removeEventListener('message', on); res(ev.data); } };
+    const onErr = e => { w.removeEventListener('error', onErr); rej(e); };
+    w.addEventListener('message', on);
+    w.addEventListener('error', onErr, { once: true });
+    w.postMessage(msg, transfer || []);
+  });
+}
+
+/* ---- GIF container assembly ---- */
+function gifHeader(W, H, pal, tableSize, loop) {
+  const gctBytes = tableSize * 3;
+  const b = new Uint8Array(13 + gctBytes + 19);
+  let o = 0;
+  const s = 'GIF89a';
+  for (let i = 0; i < 6; i++) b[o++] = s.charCodeAt(i);
+  b[o++] = W & 255; b[o++] = (W >> 8) & 255;
+  b[o++] = H & 255; b[o++] = (H >> 8) & 255;
+  const nbits = Math.log2(tableSize) - 1;
+  b[o++] = 0x80 | (0x70) | (nbits & 7);   // GCT present, 8-bit colour resolution
+  b[o++] = 0;                              // background index
+  b[o++] = 0;                              // pixel aspect ratio
+  for (let i = 0; i < tableSize; i++) {
+    b[o++] = pal[i * 3] || 0; b[o++] = pal[i * 3 + 1] || 0; b[o++] = pal[i * 3 + 2] || 0;
+  }
+  // NETSCAPE2.0 application extension = loop forever
+  b[o++] = 0x21; b[o++] = 0xFF; b[o++] = 0x0B;
+  const app = 'NETSCAPE2.0';
+  for (let i = 0; i < 11; i++) b[o++] = app.charCodeAt(i);
+  b[o++] = 0x03; b[o++] = 0x01;
+  b[o++] = loop & 255; b[o++] = (loop >> 8) & 255;
+  b[o++] = 0x00;
+  return b.subarray(0, o);
+}
+function gifFrameHeader(W, H, delayCs, transIdx) {
+  const b = new Uint8Array(8 + 10);
+  let o = 0;
+  b[o++] = 0x21; b[o++] = 0xF9; b[o++] = 0x04;
+  const disposal = 1;                        // leave the frame in place
+  b[o++] = (disposal << 2) | (transIdx >= 0 ? 1 : 0);
+  b[o++] = delayCs & 255; b[o++] = (delayCs >> 8) & 255;
+  b[o++] = transIdx >= 0 ? transIdx : 0;
+  b[o++] = 0x00;
+  b[o++] = 0x2C;
+  b[o++] = 0; b[o++] = 0; b[o++] = 0; b[o++] = 0;
+  b[o++] = W & 255; b[o++] = (W >> 8) & 255;
+  b[o++] = H & 255; b[o++] = (H >> 8) & 255;
+  b[o++] = 0x00;
+  return b.subarray(0, o);
+}
+/* integer centisecond delays that sum to exactly the requested duration */
+function delayTable(N, durSec) {
+  const total = Math.max(N * 2, Math.round(durSec * 100));
+  const d = new Uint16Array(N);
+  let acc = 0;
+  for (let i = 0; i < N; i++) {
+    const target = Math.round((i + 1) * total / N);
+    d[i] = target - acc;
+    acc = target;
+  }
+  return d;
+}
+/* =====================================================================
+   EXPORT
+   ===================================================================== */
+let CANCEL = false;
+const raf = () => new Promise(r => requestAnimationFrame(r));
+/* Yield through a MessageChannel, not setTimeout or rAF. Browsers pause rAF
+   and clamp timers to one a second in a hidden tab, which would stall a long
+   render the moment you switch away to do something else. Channel messages
+   are not throttled, so an export keeps full speed in the background. */
+const yieldUi = () => new Promise(r => {
+  const ch = new MessageChannel();
+  ch.port1.onmessage = () => { ch.port1.close(); r(); };
+  ch.port2.postMessage(0);
+});
+
+function beginBusy(label) {
+  busy = true; CANCEL = false;
+  $('#prog').classList.add('show');
+  $('#btnCancel').style.display = '';
+  ['#btnGif', '#btnWebm', '#btnPngs', '#btnVerify', '#btnRandom', '#btnRandParams'].forEach(s => $(s).disabled = true);
+  setProgress(0, label);
+}
+function endBusy() {
+  busy = false;
+  $('#btnCancel').style.display = 'none';
+  ['#btnGif', '#btnWebm', '#btnPngs', '#btnVerify', '#btnRandom', '#btnRandParams'].forEach(s => $(s).disabled = false);
+  lastRAF = 0; markDirty();
+}
+function setProgress(frac, text) {
+  $('#progBar').style.width = clamp(frac * 100, 0, 100).toFixed(1) + '%';
+  $('#progTxt').textContent = text;
+}
+function baseName() {
+  return 'loom-' + S.gen + '-' + S.seed + '-' + S.out.w + 'x' + S.out.h + '-' + S.out.fps + 'fps';
+}
+function addOutput(kind, name, blob) {
+  const url = URL.createObjectURL(blob);
+  const item = el('div', 'outItem');
+  item.appendChild(el('span', 'k', kind));
+  const a = document.createElement('a');
+  a.className = 'n'; a.href = url; a.download = name; a.textContent = name;
+  a.style.color = 'var(--acc)'; a.style.textDecoration = 'none';
+  item.appendChild(a);
+  item.appendChild(el('span', 's', fmtBytes(blob.size)));
+  const dl = el('button', 'btn sm', 'Save');
+  dl.addEventListener('click', () => { a.click(); });
+  item.appendChild(dl);
+  $('#outList').prepend(item);
+  a.click();
+}
+
+/* ------------------------------------------------------------------ GIF */
+async function exportGif() {
+  const W = S.out.w | 0, H = S.out.h | 0, N = totalFrames(), ss = S.out.ss;
+  const alphaOn = S.out.bg === 'alpha';
+  const K = Math.min(alphaOn ? 255 : 256, S.gif.colors | 0);
+  beginBusy('preparing...');
+  const t0 = performance.now();
+  try {
+    /* --- pass 1: one global palette sampled across the whole loop --- */
+    const sampleN = Math.min(N, 24);
+    const sc = Math.min(1, 480 / Math.max(W, H));
+    const sw = Math.max(8, Math.round(W * sc)), sh = Math.max(8, Math.round(H * sc));
+    const hist = new Uint32Array(262144);
+    for (let i = 0; i < sampleN; i++) {
+      if (CANCEL) throw new Error('cancelled');
+      const t = (Math.round(i * N / sampleN)) / N;
+      render(t, sw, sh, 1);
+      const px = readFrame(sw, sh);
+      for (let p = 0; p < px.length; p += 4) {
+        if (alphaOn && px[p + 3] < 128) continue;
+        hist[((px[p] >> 2) << 12) | ((px[p + 1] >> 2) << 6) | (px[p + 2] >> 2)]++;
+      }
+      setProgress(i / sampleN * 0.12, 'sampling colours   ' + (i + 1) + '/' + sampleN);
+      await yieldUi();
+    }
+    setProgress(0.12, 'building the ' + K + '-colour palette...');
+    await yieldUi();
+
+    const pool = getWorkers();
+    let pal, cache;
+    if (pool && pool.length) {
+      const r = await wkCall(pool[0], { cmd: 'pal', hist: hist.buffer.slice(0), K, refine: S.gif.kmeans });
+      pal = new Uint8Array(r.pal); cache = new Uint8Array(r.cache);
+    } else {
+      const r = getAlgo().buildPalette(hist, K, S.gif.kmeans);
+      pal = r.pal; cache = r.cache;
+    }
+    if (CANCEL) throw new Error('cancelled');
+
+    /* --- container setup --- */
+    const transIdx = alphaOn ? K : -1;
+    const entries = alphaOn ? K + 1 : K;
+    let tableSize = 2; while (tableSize < entries) tableSize *= 2;
+    if (tableSize < 4) tableSize = 4;
+    const mcs = Math.max(2, Math.round(Math.log2(tableSize)));
+    const delays = delayTable(N, S.out.dur);
+    const head = gifHeader(W, H, pal, tableSize, 0);
+    const alphaCut = 128;
+
+    const parts = new Array(N);
+    const blobChunks = [new Blob([head])];
+    let drained = 0, doneCount = 0, bytesSoFar = head.length;
+    function drain() {
+      const buf = [];
+      while (drained < N && parts[drained]) {
+        buf.push(gifFrameHeader(W, H, delays[drained], transIdx), parts[drained]);
+        parts[drained] = null; drained++;
+      }
+      if (buf.length) blobChunks.push(new Blob(buf));
+    }
+    function onDone() {
+      doneCount++;
+      drain();
+      const frac = 0.15 + doneCount / N * 0.83;
+      const el2 = (performance.now() - t0) / 1000;
+      const eta = doneCount > 2 ? el2 / doneCount * (N - doneCount) : NaN;
+      setProgress(frac, 'encoding   ' + doneCount + '/' + N + ' frames\n' +
+        fmtBytes(bytesSoFar) + ' so far, projected ' + fmtBytes(bytesSoFar / doneCount * N) +
+        '\nelapsed ' + fmtTime(el2) + ', about ' + fmtTime(eta) + ' left');
+    }
+
+    if (pool && pool.length) {
+      await Promise.all(pool.map(w => wkCall(w, { cmd: 'setpal', pal: pal.buffer.slice(0), cache: cache.buffer.slice(0) })));
+      const free = pool.slice(); const waiters = [];
+      const acquire = () => free.length ? Promise.resolve(free.pop()) : new Promise(r => waiters.push(r));
+      const release = w => { const r = waiters.shift(); if (r) r(w); else free.push(w); };
+      const jobs = [];
+      for (let i = 0; i < N; i++) {
+        if (CANCEL) break;
+        const w = await acquire();
+        await yieldUi();
+        if (CANCEL) { release(w); break; }
+        render(i / N, W, H, ss);
+        const px = readFrame(W, H);
+        const idx = i;
+        jobs.push(wkCall(w, {
+          cmd: 'frame', idx, buf: px.buffer, w: W, h: H,
+          dither: S.gif.dither, strength: S.gif.strength,
+          transIdx, alphaCut, mcs
+        }, [px.buffer]).then(r => {
+          const b = new Uint8Array(r.bytes);
+          parts[r.idx] = b; bytesSoFar += b.length + 18;
+          release(w); onDone();
+        }));
+      }
+      await Promise.all(jobs);
+    } else {
+      const A = getAlgo();
+      for (let i = 0; i < N; i++) {
+        if (CANCEL) break;
+        await yieldUi();
+        render(i / N, W, H, ss);
+        const px = readFrame(W, H);
+        const b = A.encodeFrame(px, W, H, pal, cache, S.gif.dither, S.gif.strength, transIdx, alphaCut, mcs);
+        parts[i] = b; bytesSoFar += b.length + 18;
+        onDone();
+      }
+    }
+    if (CANCEL) throw new Error('cancelled');
+    drain();
+    blobChunks.push(new Blob([new Uint8Array([0x3B])]));
+    const blob = new Blob(blobChunks, { type: 'image/gif' });
+    addOutput('GIF', baseName() + '.gif', blob);
+    setProgress(1, 'done  ' + fmtBytes(blob.size) + '  in ' + fmtTime((performance.now() - t0) / 1000) +
+      '\n' + N + ' frames, ' + K + ' colours, delays sum to exactly ' + (S.out.dur).toFixed(2) + 's');
+    toast('GIF ready: ' + fmtBytes(blob.size));
+  } catch (e) {
+    if (String(e.message) === 'cancelled') { setProgress(0, 'cancelled'); toast('Cancelled.'); }
+    else { console.error(e); setProgress(0, 'failed: ' + e.message); toast('GIF export failed: ' + e.message, 5000); }
+  } finally { endBusy(); }
+}
+
+/* ----------------------------------------------------------- WebM muxer */
+function ebmlNum(id) {           // element IDs are written raw
+  const b = [];
+  let n = id;
+  const bytes = n > 0xFFFFFF ? 4 : n > 0xFFFF ? 3 : n > 0xFF ? 2 : 1;
+  for (let i = bytes - 1; i >= 0; i--) b.push((n >> (i * 8)) & 255);
+  return b;
+}
+function ebmlSize(v) {
+  let len = 1;
+  while (v >= Math.pow(2, 7 * len) - 1 && len < 8) len++;
+  const b = new Array(len);
+  for (let i = 0; i < len; i++) b[len - 1 - i] = Math.floor(v / Math.pow(2, 8 * i)) % 256;
+  b[0] |= (1 << (8 - len));
+  return b;
+}
+function ebmlUint(v) {
+  const b = [];
+  let n = Math.max(0, Math.round(v));
+  do { b.unshift(n & 255); n = Math.floor(n / 256); } while (n > 0);
+  return b;
+}
+function ebmlFloat64(v) {
+  const dv = new DataView(new ArrayBuffer(8)); dv.setFloat64(0, v, false);
+  return Array.from(new Uint8Array(dv.buffer));
+}
+function ebmlStr(s) { const b = []; for (let i = 0; i < s.length; i++) b.push(s.charCodeAt(i) & 255); return b; }
+function el_(id, payload) { return ebmlNum(id).concat(ebmlSize(payload.length), payload); }
+function elu(id, v) { return el_(id, ebmlUint(v)); }
+function els(id, v) { return el_(id, ebmlStr(v)); }
+function elf(id, v) { return el_(id, ebmlFloat64(v)); }
+
+function buildWebm(frames, W, H, durSec, codecId) {
+  // frames: [{data:Uint8Array, tsMs:number, key:boolean}]
+  const header = ebmlNum(0x1A45DFA3);
+  const hdrPayload = [].concat(
+    elu(0x4286, 1), elu(0x42F7, 1), elu(0x42F2, 4), elu(0x42F3, 8),
+    els(0x4282, 'webm'), elu(0x4287, 2), elu(0x4285, 2));
+  const ebmlHead = header.concat(ebmlSize(hdrPayload.length), hdrPayload);
+
+  const info = el_(0x1549A966, [].concat(
+    elu(0x2AD7B1, 1000000),
+    els(0x4D80, 'Electric Loom'),
+    els(0x5741, 'Electric Loom'),
+    elf(0x4489, durSec * 1000)));
+
+  const video = el_(0xE0, [].concat(elu(0xB0, W), elu(0xBA, H)));
+  const track = el_(0xAE, [].concat(
+    elu(0xD7, 1), elu(0x73C5, 1), elu(0x83, 1), elu(0x9C, 0),
+    els(0x86, codecId),
+    elu(0x23E383, Math.round(durSec * 1e9 / frames.length)),
+    video));
+  const tracks = el_(0x1654AE6B, track);
+
+  const clusters = [];
+  let i = 0;
+  while (i < frames.length) {
+    const base = frames[i].tsMs;
+    const blocks = [];
+    while (i < frames.length) {
+      const rel = Math.round(frames[i].tsMs - base);
+      if (rel > 30000 || (blocks.length && frames[i].key)) break;
+      const f = frames[i];
+      const head2 = [0x81, (rel >> 8) & 255, rel & 255, f.key ? 0x80 : 0x00];
+      const payload = new Uint8Array(4 + f.data.length);
+      payload.set(head2, 0); payload.set(f.data, 4);
+      blocks.push({ id: 0xA3, data: payload });
+      i++;
+    }
+    let clen = 0;
+    const tc = elu(0xE7, Math.round(base));
+    clen += tc.length;
+    const blockHeads = blocks.map(b => ebmlNum(b.id).concat(ebmlSize(b.data.length)));
+    blockHeads.forEach((h, j) => { clen += h.length + blocks[j].data.length; });
+    const parts = [new Uint8Array(ebmlNum(0x1F43B675).concat(ebmlSize(clen), tc))];
+    blockHeads.forEach((h, j) => { parts.push(new Uint8Array(h), blocks[j].data); });
+    clusters.push(...parts);
+  }
+
+  let segLen = info.length + tracks.length;
+  clusters.forEach(c => segLen += c.length);
+  const segHead = ebmlNum(0x18538067).concat(ebmlSize(segLen));
+
+  const out = [new Uint8Array(ebmlHead), new Uint8Array(segHead), new Uint8Array(info), new Uint8Array(tracks)];
+  clusters.forEach(c => out.push(c));
+  return new Blob(out, { type: 'video/webm' });
+}
+
+const VID_CODECS = [
+  { label: 'VP9', codec: 'vp09.00.10.08', mk: 'V_VP9' },
+  { label: 'VP8', codec: 'vp8', mk: 'V_VP8' },
+  { label: 'AV1', codec: 'av01.0.08M.08', mk: 'V_AV1' }
+];
+let VID_OK = [];
+async function probeCodecs() {
+  const sel = $('#vidCodec'); sel.innerHTML = '';
+  if (typeof VideoEncoder === 'undefined') {
+    $('#vidInfo').textContent = 'WebCodecs is not available in this browser, so WebM falls back to MediaRecorder: ' +
+      'capture runs in real time and frame timing is approximate. Chrome or Edge gives you the exact path.';
+    const o = document.createElement('option'); o.value = 'mr'; o.textContent = 'MediaRecorder (fallback)';
+    sel.appendChild(o); S.vid.codec = 'mr';
+    return;
+  }
+  for (const c of VID_CODECS) {
+    try {
+      const r = await VideoEncoder.isConfigSupported({ codec: c.codec, width: 1280, height: 720, bitrate: 4e6, framerate: 30 });
+      if (r && r.supported) VID_OK.push(c);
+    } catch (e) {}
+  }
+  if (!VID_OK.length) {
+    const o = document.createElement('option'); o.value = 'mr'; o.textContent = 'MediaRecorder (fallback)';
+    sel.appendChild(o); S.vid.codec = 'mr';
+    $('#vidInfo').textContent = 'No WebCodecs video encoder accepted a config here; using MediaRecorder.';
+    return;
+  }
+  VID_OK.forEach(c => { const o = document.createElement('option'); o.value = c.codec; o.textContent = c.label; sel.appendChild(o); });
+  S.vid.codec = VID_OK[0].codec;
+  sel.value = S.vid.codec;
+  $('#vidInfo').textContent = 'Frames are encoded one at a time with exact timestamps, so the file is exactly ' +
+    'the length you asked for and the last frame hands straight back to the first.';
+}
+
+async function exportWebm() {
+  const W = S.out.w | 0, H = S.out.h | 0, N = totalFrames(), ss = S.out.ss;
+  const durSec = S.out.dur;
+  beginBusy('starting encoder...');
+  const t0 = performance.now();
+  try {
+    if (S.vid.codec === 'mr') { await exportWebmMediaRecorder(); return; }
+    const cinfo = VID_CODECS.find(c => c.codec === S.vid.codec) || VID_CODECS[0];
+    const bitrate = Math.round(W * H * S.out.fps * S.vid.q);
+    const chunks = [];
+    let encErr = null;
+    const enc = new VideoEncoder({
+      output: (chunk) => {
+        const d = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(d);
+        chunks.push({ data: d, tsMs: chunk.timestamp / 1000, key: chunk.type === 'key' });
+      },
+      error: e => { encErr = e; }
+    });
+    enc.configure({
+      codec: cinfo.codec, width: W, height: H, bitrate,
+      framerate: S.out.fps, latencyMode: 'quality'
+    });
+    const frameDurUs = durSec * 1e6 / N;
+    const kfEvery = Math.max(1, Math.round(S.out.fps * 2));
+    for (let i = 0; i < N; i++) {
+      if (CANCEL) break;
+      if (encErr) throw encErr;
+      await yieldUi();
+      render(i / N, W, H, ss);
+      const px = readFrame(W, H);
+      const vf = new VideoFrame(px, {
+        format: 'RGBA', codedWidth: W, codedHeight: H,
+        timestamp: Math.round(i * frameDurUs), duration: Math.round(frameDurUs)
+      });
+      enc.encode(vf, { keyFrame: i % kfEvery === 0 });
+      vf.close();
+      while (enc.encodeQueueSize > 8) await yieldUi();
+      const el2 = (performance.now() - t0) / 1000;
+      setProgress(0.05 + i / N * 0.9, 'encoding   ' + (i + 1) + '/' + N + ' frames\n' +
+        cinfo.label + ' at ' + (bitrate / 1e6).toFixed(1) + ' Mbps\nelapsed ' + fmtTime(el2) +
+        ', about ' + fmtTime(i > 2 ? el2 / i * (N - i) : NaN) + ' left');
+    }
+    if (CANCEL) { try { enc.close(); } catch (e) {} throw new Error('cancelled'); }
+    await enc.flush();
+    enc.close();
+    if (encErr) throw encErr;
+    chunks.sort((a, b) => a.tsMs - b.tsMs);
+    const blob = buildWebm(chunks, W, H, durSec, cinfo.mk);
+    addOutput('WEBM', baseName() + '.webm', blob);
+    setProgress(1, 'done  ' + fmtBytes(blob.size) + '  in ' + fmtTime((performance.now() - t0) / 1000) +
+      '\n' + N + ' frames, exactly ' + durSec.toFixed(2) + 's');
+    toast('WebM ready: ' + fmtBytes(blob.size));
+  } catch (e) {
+    if (String(e.message) === 'cancelled') { setProgress(0, 'cancelled'); toast('Cancelled.'); }
+    else { console.error(e); setProgress(0, 'failed: ' + (e.message || e)); toast('WebM export failed: ' + (e.message || e), 5000); }
+  } finally { endBusy(); }
+}
+
+async function exportWebmMediaRecorder() {
+  const W = S.out.w | 0, H = S.out.h | 0, N = totalFrames(), ss = S.out.ss, fps = S.out.fps;
+  const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported(t));
+  if (!mime) throw new Error('no WebM MediaRecorder support');
+  render(0, W, H, ss);
+  const stream = cvs.captureStream(0);
+  const track = stream.getVideoTracks()[0];
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(W * H * fps * S.vid.q) });
+  const bits = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) bits.push(e.data); };
+  const stopped = new Promise(r => rec.onstop = r);
+  rec.start();
+  const step = 1000 / fps;
+  const t0 = performance.now();
+  for (let i = 0; i < N; i++) {
+    if (CANCEL) break;
+    render(i / N, W, H, ss);
+    if (track.requestFrame) track.requestFrame();
+    const want = t0 + (i + 1) * step;
+    while (performance.now() < want) await new Promise(r => setTimeout(r, 1));
+    setProgress(0.05 + i / N * 0.9, 'real-time capture   ' + (i + 1) + '/' + N +
+      '\nMediaRecorder fallback: timing is approximate');
+  }
+  rec.stop();
+  await stopped;
+  const blob = new Blob(bits, { type: mime });
+  addOutput('WEBM', baseName() + '.webm', blob);
+  setProgress(1, 'done  ' + fmtBytes(blob.size));
+  toast('WebM ready (fallback path): ' + fmtBytes(blob.size));
+}
+
+/* ------------------------------------------------------------- PNG + ZIP */
+const CRC_T = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = CRC_T[(c ^ buf[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function dosTime(d) {
+  return ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF;
+}
+function dosDate(d) {
+  return (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF;
+}
+function w32(a, v) { a.push(v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255); }
+function w16(a, v) { a.push(v & 255, (v >> 8) & 255); }
+
+async function exportPngs() {
+  const W = S.out.w | 0, H = S.out.h | 0, N = totalFrames(), ss = S.out.ss;
+  beginBusy('rendering frames...');
+  const t0 = performance.now();
+  try {
+    const c2 = document.createElement('canvas'); c2.width = W; c2.height = H;
+    const ctx = c2.getContext('2d', { willReadFrequently: false });
+    const img = ctx.createImageData(W, H);
+    const files = [];
+    const now = new Date();
+    const dt = dosTime(now), dd = dosDate(now);
+    const chunks = [];
+    let offset = 0, total = 0;
+    for (let i = 0; i < N; i++) {
+      if (CANCEL) break;
+      await yieldUi();
+      render(i / N, W, H, ss);
+      const px = readFrame(W, H);
+      img.data.set(px);
+      ctx.putImageData(img, 0, 0);
+      const blob = await new Promise(r => c2.toBlob(r, 'image/png'));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      total += bytes.length;
+      if (total > 4 * 1024 * 1024 * 1024 - 1e6) throw new Error('the zip would pass the 4 GB single-file limit; use fewer frames or a smaller size');
+      const name = 'frame_' + String(i).padStart(4, '0') + '.png';
+      const nameBytes = new TextEncoder().encode(name);
+      const crc = crc32(bytes);
+      const lh = [];
+      w32(lh, 0x04034b50); w16(lh, 20); w16(lh, 0); w16(lh, 0);
+      w16(lh, dt); w16(lh, dd); w32(lh, crc); w32(lh, bytes.length); w32(lh, bytes.length);
+      w16(lh, nameBytes.length); w16(lh, 0);
+      const lhb = new Uint8Array(lh);
+      chunks.push(lhb, nameBytes, bytes);
+      files.push({ name: nameBytes, crc, size: bytes.length, offset });
+      offset += lhb.length + nameBytes.length + bytes.length;
+      const el2 = (performance.now() - t0) / 1000;
+      setProgress(i / N * 0.97, 'writing   ' + (i + 1) + '/' + N + ' PNG frames\n' +
+        fmtBytes(total) + ' so far\nelapsed ' + fmtTime(el2) + ', about ' +
+        fmtTime(i > 2 ? el2 / i * (N - i) : NaN) + ' left');
+    }
+    if (CANCEL) throw new Error('cancelled');
+    const cd = [];
+    files.forEach(f => {
+      w32(cd, 0x02014b50); w16(cd, 20); w16(cd, 20); w16(cd, 0); w16(cd, 0);
+      w16(cd, dt); w16(cd, dd); w32(cd, f.crc); w32(cd, f.size); w32(cd, f.size);
+      w16(cd, f.name.length); w16(cd, 0); w16(cd, 0); w16(cd, 0); w16(cd, 0); w32(cd, 0);
+      w32(cd, f.offset);
+      for (let i = 0; i < f.name.length; i++) cd.push(f.name[i]);
+    });
+    const cdb = new Uint8Array(cd);
+    const eo = [];
+    w32(eo, 0x06054b50); w16(eo, 0); w16(eo, 0);
+    w16(eo, files.length); w16(eo, files.length);
+    w32(eo, cdb.length); w32(eo, offset); w16(eo, 0);
+    chunks.push(cdb, new Uint8Array(eo));
+    const blob = new Blob(chunks, { type: 'application/zip' });
+    addOutput('ZIP', baseName() + '-png.zip', blob);
+    setProgress(1, 'done  ' + fmtBytes(blob.size) + '  in ' + fmtTime((performance.now() - t0) / 1000) +
+      '\n' + files.length + ' PNG frames' + (S.out.bg === 'alpha' ? ', with alpha' : ''));
+    toast('PNG frames ready: ' + fmtBytes(blob.size));
+  } catch (e) {
+    if (String(e.message) === 'cancelled') { setProgress(0, 'cancelled'); toast('Cancelled.'); }
+    else { console.error(e); setProgress(0, 'failed: ' + e.message); toast('PNG export failed: ' + e.message, 5000); }
+  } finally { endBusy(); }
+}
+
+/* --------------------------------------------------------- loop verifier */
+async function verifyLoop() {
+  const W = Math.min(S.out.w, 960) | 0;
+  const H = Math.max(1, Math.round(W * S.out.h / S.out.w));
+  beginBusy('verifying the seam...');
+  try {
+    render(0, W, H, S.out.ss);
+    const a = readFrame(W, H);
+    await yieldUi();
+    render(1, W, H, S.out.ss);   // t=1 is the frame AFTER the last one: must equal t=0
+    const b = readFrame(W, H);
+    let maxd = 0, sum = 0, n = 0;
+    for (let i = 0; i < a.length; i++) {
+      const d = Math.abs(a[i] - b[i]);
+      if (d > maxd) maxd = d;
+      sum += d * d; n++;
+    }
+    const rms = Math.sqrt(sum / n);
+    const badge = $('#seamBadge');
+    const good = maxd <= 1;
+    badge.className = 'show ' + (good ? 'good' : maxd <= 4 ? '' : 'bad');
+    badge.textContent = good ? 'loop is exact  (max diff 0)' :
+      'seam diff  max ' + maxd + '  rms ' + rms.toFixed(2);
+    setTimeout(() => badge.classList.remove('show'), 6000);
+    setProgress(1, good
+      ? 'Exact loop. Frame at t=1 is pixel-identical to frame 0, so the last frame hands straight back to the first.'
+      : 'Seam max diff  ' + maxd + '/255, rms ' + rms.toFixed(2) + '. Grain and dither noise can show a tiny non-zero value; anything above ~4 means a parameter is not on a whole number of cycles.');
+    toast(good ? 'Loop verified: pixel-exact.' : 'Seam max difference ' + maxd + '/255');
+  } catch (e) {
+    console.error(e); setProgress(0, 'verify failed: ' + e.message);
+  } finally { endBusy(); }
+}
+/* =====================================================================
+   PRESETS
+   ===================================================================== */
+const PRESET_KEY = 'eloom.presets.v1';
+function loadPresets() { try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '[]'); } catch (e) { return []; } }
+function savePresets(list) { try { localStorage.setItem(PRESET_KEY, JSON.stringify(list)); } catch (e) { toast('Could not save: local storage is full or blocked.'); } }
+function buildPresetList() {
+  const host = $('#presetList'); host.innerHTML = '';
+  const list = loadPresets();
+  if (!list.length) { host.appendChild(el('div', 'note', 'Nothing saved yet. Name a look and hit Save.')); return; }
+  list.forEach((p, i) => {
+    const row = el('div', 'row');
+    const b = el('button', 'btn sm', p.name);
+    b.style.flex = '1'; b.style.justifyContent = 'flex-start';
+    b.addEventListener('click', () => { applySnapshot(p.data); pushUrl(); scheduleThumbs(); toast('Loaded "' + p.name + '"'); });
+    const x = el('button', 'btn sm danger', '×');
+    x.addEventListener('click', () => { const l = loadPresets(); l.splice(i, 1); savePresets(l); buildPresetList(); });
+    row.appendChild(b); row.appendChild(x);
+    host.appendChild(row);
+  });
+}
+
+/* =====================================================================
+   HELP
+   ===================================================================== */
+function showHelp() {
+  $('#ovBig').textContent = 'Electric Loom';
+  $('#ovSmall').innerHTML =
+    'Every pattern is built so that time only enters as an angle, and every rate is a whole\n' +
+    'number of turns per loop. Frame N is therefore the same pixels as frame 0, and the\n' +
+    '<b>Verify loop</b> button proves it by rendering t=0 and t=1 and diffing them.\n\n' +
+    '<b>space</b> play / pause &nbsp; <b>R</b> randomize &nbsp; <b>P</b> reroll params\n' +
+    '<b>left / right</b> step one frame &nbsp; <b>S</b> seam check &nbsp; <b>V</b> verify\n' +
+    '<b>G</b> render GIF &nbsp; <b>W</b> render WebM &nbsp; <b>esc</b> close this\n\n' +
+    'Double-click any slider readout to reset that one control.\n' +
+    'The link in the address bar carries the whole look; Copy link shares it.\n\n' +
+    'Nothing here talks to a network. Open index.html straight off disk, or run\n' +
+    'serve.cmd for the multi-core GIF encoder.';
+  $('#ovSmall').style.whiteSpace = 'pre-wrap';
+  $('#overlayMsg').classList.add('show');
+}
+
+/* =====================================================================
+   WIRING
+   ===================================================================== */
+function wire() {
+  /* framing controls, with the seed on top */
+  const fc = $('#frameCtls');
+  buildCtlList(fc, FRAME_DEF, S.frame, pushUrlSoon);
+  const seedWrap = el('div', 'ctl');
+  const st = el('div', 'top'); st.appendChild(el('span', 'name', 'Seed'));
+  seedWrap.appendChild(st);
+  const sr = el('div', 'seedRow');
+  const si = document.createElement('input'); si.type = 'text'; si.id = 'seedInput'; si.value = S.seed;
+  si.addEventListener('input', () => { S.seed = si.value || 'x'; markDirty(); pushUrlSoon(); scheduleThumbs(); });
+  const sb = el('button', 'btn sm', 'roll');
+  sb.addEventListener('click', () => { S.seed = randSeedWord(); si.value = S.seed; markDirty(); pushUrl(); scheduleThumbs(); });
+  sr.appendChild(si); sr.appendChild(sb);
+  seedWrap.appendChild(sr);
+  seedWrap.appendChild(el('div', 'hint', 'Only the patterns with scattered elements use it: metaballs, voronoi, truchet, hex, ripples, flame.'));
+  fc.insertBefore(seedWrap, fc.firstChild);
+
+  buildCtlList($('#postCtls'), POST_DEF, S.post, pushUrlSoon);
+  buildCtlList($('#palExtra'), PAL_EXTRA_DEF, S.palX, pushUrlSoon);
+  buildCtlList($('#alphaCtls'), ALPHA_DEF, S.alpha, pushUrlSoon);
+  buildCtlList($('#ditherStrCtl'), [P(0, 'strength', 'Dither strength', 0, 1, 0.9, 0.005)], S.gif, () => { updateEstimate(); pushUrlSoon(); });
+
+  $('#palSpace').addEventListener('change', e => { S.pal.space = e.target.value; rebuildLut(); pushUrl(); });
+  $('#btnAddStop').addEventListener('click', () => {
+    const n = S.pal.stops.length;
+    S.pal.stops.push({ p: clamp(n / (n + 1), 0, 0.999), c: '#ffffff' });
+    S.pal.preset = -1; buildStops(); rebuildLut(); pushUrl();
+  });
+  $('#btnRevPal').addEventListener('click', () => {
+    S.pal.stops = S.pal.stops.slice().reverse().map((s, i, a) => ({ p: i / a.length, c: s.c }));
+    S.pal.preset = -1; buildStops(); rebuildLut(); pushUrl();
+  });
+  $('#btnRandPal').addEventListener('click', () => {
+    S.pal.stops = randomPalette(); S.pal.preset = -1;
+    buildStops(); buildPalPresets(); rebuildLut(); pushUrl();
+  });
+
+  /* output */
+  const setSize = (w, h) => {
+    S.out.w = clamp(Math.round(w / 2) * 2, 16, 4096);
+    S.out.h = clamp(Math.round(h / 2) * 2, 16, 4096);
+    $('#outW').value = S.out.w; $('#outH').value = S.out.h;
+    syncSizePreset(); updateEstimate(); layout(); markDirty(); pushUrlSoon();
+  };
+  $('#sizePreset').addEventListener('change', e => {
+    if (e.target.value === 'custom') return;
+    const [w, h] = e.target.value.split('x').map(Number);
+    setSize(w, h);
+  });
+  $('#outW').addEventListener('change', e => setSize(+e.target.value, S.out.h));
+  $('#outH').addEventListener('change', e => setSize(S.out.w, +e.target.value));
+  $('#outDur').addEventListener('change', e => {
+    S.out.dur = clamp(parseFloat(e.target.value) || 4, 0.5, 15);
+    e.target.value = S.out.dur; updateEstimate(); markDirty(); pushUrlSoon();
+  });
+  $('#outFps').addEventListener('change', e => { S.out.fps = +e.target.value; updateEstimate(); markDirty(); pushUrlSoon(); });
+  $('#outSS').addEventListener('change', e => { S.out.ss = +e.target.value; updateEstimate(); markDirty(); pushUrlSoon(); });
+  $('#bgMode').addEventListener('change', e => {
+    S.out.bg = e.target.value;
+    $('#alphaCtls').style.display = S.out.bg === 'alpha' ? '' : 'none';
+    markDirty(); pushUrlSoon();
+  });
+  $('#gifColors').addEventListener('change', e => { S.gif.colors = +e.target.value; updateEstimate(); pushUrlSoon(); });
+  $('#gifDither').addEventListener('change', e => { S.gif.dither = e.target.value; updateEstimate(); pushUrlSoon(); });
+  $('#gifSharpPal').addEventListener('change', e => { S.gif.kmeans = e.target.checked; pushUrlSoon(); });
+  $('#vidCodec').addEventListener('change', e => { S.vid.codec = e.target.value; pushUrlSoon(); });
+  $('#vidQ').addEventListener('change', e => { S.vid.q = parseFloat(e.target.value); updateEstimate(); pushUrlSoon(); });
+
+  /* transport */
+  $('#btnPlay').addEventListener('click', () => togglePlay());
+  $('#btnSeam').addEventListener('click', () => toggleSeam());
+  $('#scrub').addEventListener('input', e => {
+    tNow = clamp(+e.target.value / 1000, 0, 0.9999);
+    e.target.style.setProperty('--pct', (tNow * 100).toFixed(1) + '%');
+    markDirty();
+  });
+  $('#previewQ').addEventListener('change', markDirty);
+  $('#btnVerify').addEventListener('click', verifyLoop);
+
+  /* export */
+  $('#btnGif').addEventListener('click', exportGif);
+  $('#btnWebm').addEventListener('click', exportWebm);
+  $('#btnPngs').addEventListener('click', exportPngs);
+  $('#btnCancel').addEventListener('click', () => { CANCEL = true; toast('Stopping...'); });
+
+  /* header */
+  $('#btnRandom').addEventListener('click', () => doRandomize(true));
+  $('#btnRandParams').addEventListener('click', () => doRandomize(false));
+  $('#btnCopyLink').addEventListener('click', async () => {
+    pushUrl();
+    try { await navigator.clipboard.writeText(location.href); toast('Link copied. It rebuilds this exact look.'); }
+    catch (e) { toast('Copy blocked; the link is in the address bar.'); }
+  });
+  $('#btnHelp').addEventListener('click', showHelp);
+  $('#overlayMsg').addEventListener('click', hideOverlay);
+
+  /* presets */
+  $('#btnSavePreset').addEventListener('click', () => {
+    const nm = ($('#presetName').value || '').trim() || (GEN_BY_ID[S.gen].name + ' ' + S.seed);
+    const list = loadPresets();
+    list.unshift({ name: nm, data: snapshot() });
+    savePresets(list.slice(0, 60)); buildPresetList();
+    $('#presetName').value = ''; toast('Saved "' + nm + '"');
+  });
+  $('#btnExportJson').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({ presets: loadPresets(), current: snapshot() }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'electric-loom-presets.json'; a.click();
+  });
+  $('#btnImportJson').addEventListener('click', () => $('#fileJson').click());
+  $('#fileJson').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const o = JSON.parse(await f.text());
+      if (o.presets && Array.isArray(o.presets)) {
+        savePresets(o.presets.concat(loadPresets()).slice(0, 120));
+        buildPresetList(); toast('Imported ' + o.presets.length + ' looks.');
+      }
+      if (o.current) { applySnapshot(o.current); pushUrl(); scheduleThumbs(); }
+      else if (o.gen) { applySnapshot(o); pushUrl(); scheduleThumbs(); }
+    } catch (err) { toast('That file did not parse as Electric Loom JSON.'); }
+    e.target.value = '';
+  });
+
+  /* keyboard */
+  window.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') {
+      if (e.key === 'Escape') e.target.blur();
+      return;
+    }
+    const N = totalFrames();
+    switch (e.key) {
+      case ' ': e.preventDefault(); togglePlay(); break;
+      case 'r': case 'R': if (!busy) doRandomize(true); break;
+      case 'p': case 'P': if (!busy) doRandomize(false); break;
+      case 's': case 'S': toggleSeam(); break;
+      case 'v': case 'V': if (!busy) verifyLoop(); break;
+      case 'g': case 'G': if (!busy) exportGif(); break;
+      case 'w': case 'W': if (!busy) exportWebm(); break;
+      case 'Escape': hideOverlay(); break;
+      case 'ArrowRight': playing = false; tNow = (Math.round(tNow * N) + 1) % N / N; markDirty(); syncPlayBtn(); break;
+      case 'ArrowLeft': playing = false; tNow = ((Math.round(tNow * N) - 1 + N) % N) / N; markDirty(); syncPlayBtn(); break;
+    }
+  });
+
+  window.addEventListener('resize', layout);
+}
+function togglePlay() { playing = !playing; if (playing) seamMode = 0; syncPlayBtn(); }
+function syncPlayBtn() {
+  $('#btnPlay').innerHTML = playing ? '&#10074;&#10074;' : '&#9654;';
+  $('#btnPlay').classList.toggle('on', playing);
+  $('#btnSeam').classList.toggle('on', !!seamMode);
+}
+function toggleSeam() {
+  seamMode = seamMode ? 0 : 1;
+  if (seamMode) { playing = false; seamTick = 0; }
+  else { $('#seamBadge').className = ''; }
+  syncPlayBtn(); markDirty();
+}
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+(function boot() {
+  if (!GL_OK) {
+    document.body.innerHTML =
+      '<div style="display:grid;place-items:center;height:100vh;text-align:center;padding:40px;font:14px/1.7 system-ui;color:#e6e8f5">' +
+      '<div><h2 style="margin-bottom:12px">WebGL2 is not available here</h2>' +
+      '<p style="color:#8d92b5;max-width:520px">Electric Loom renders every frame on the GPU and needs WebGL2. ' +
+      'Try Chrome, Edge or Firefox, and check that hardware acceleration is on in the browser settings.</p></div></div>';
+    return;
+  }
+  wireSections();
+  buildGallery();
+  buildSizePresets();
+  wire();
+  buildStops();
+  buildPalPresets();
+  uploadPalette();
+  drawPalBar();
+  buildParams();
+  buildPresetList();
+  $('#genTag').textContent = GEN_BY_ID[S.gen].name;
+
+  if (!readUrl()) {
+    // a good-looking first impression rather than a blank default
+    S.pal.stops = PAL_PRESETS[0].s.map((c, i) => ({ p: i / PAL_PRESETS[0].s.length, c }));
+    S.pal.preset = 0;
+    S.frame.zoom = 1.15;
+    refreshAllUI();
+  }
+  probeCodecs();
+  syncPlayBtn();
+  layout();
+  updateEstimate();
+  setTimeout(renderThumbs, 60);
+  requestAnimationFrame(tick);
+
+  // tell the user which encoding path they got, once, quietly
+  setTimeout(() => {
+    const w = getWorkers();
+    if (!w) {
+      $('#progTxt').textContent = '';
+      const note = el('div', 'warnbox');
+      note.innerHTML = 'GIF encoding is running on the main thread because background workers are blocked ' +
+        'on file:// pages. It still works, just slower. Run <b>serve.cmd</b> in this folder and open ' +
+        '<b>http://localhost:8777</b> to get all cores.';
+      $('#outList').parentNode.insertBefore(note, $('#outList'));
+    }
+  }, 400);
+})();
+</script>
+</body>
+</html>

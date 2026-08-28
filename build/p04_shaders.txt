@@ -1,0 +1,539 @@
+/* =====================================================================
+   SHADERS
+   ---------------------------------------------------------------------
+   THE LOOP RULE, obeyed by every generator below:
+   time enters only as TA = 2*PI*T with T in [0,1), and every coefficient
+   multiplying TA is an integer (floor()ed in the shader, integer-stepped
+   in the UI). Anything periodic in 2*PI is therefore bit-identical at
+   T=0 and T=1. Scrolling fields are additionally locked to a whole
+   number of tiles per loop. No cross-fades, no cheats.
+   ===================================================================== */
+
+const GLSL_PRELUDE = `#version 300 es
+precision highp float;
+precision highp int;
+out vec4 O;
+uniform vec2  uRes;
+uniform float uT;
+uniform float uSeed;
+uniform sampler2D uPal;
+uniform float uP[16];
+uniform float uZoom, uRot, uMirror, uMirrorRot, uPalRot;
+uniform vec2  uPan;
+uniform float uAlphaMode, uAlphaGain, uAlphaBias;
+const float PI  = 3.141592653589793;
+const float TAU = 6.283185307179586;
+#define T uT
+#define TA (TAU*uT)
+
+vec3 pal(float x){ return texture(uPal, vec2(x + uPalRot, 0.5)).rgb; }
+
+float h11(float p){ p=fract(p*0.1031); p*=p+33.33; p*=p+p; return fract(p); }
+float h12(vec2 p){ vec3 p3=fract(vec3(p.xyx)*0.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
+vec2  h22(vec2 p){ vec3 p3=fract(vec3(p.xyx)*vec3(0.1031,0.1030,0.0973)); p3+=dot(p3,p3.yzx+33.33); return fract((p3.xx+p3.yz)*p3.zy); }
+float h13(vec3 p3){ p3=fract(p3*0.1031); p3+=dot(p3,p3.zyx+31.32); return fract((p3.x+p3.y)*p3.z); }
+float h14(vec4 p4){ p4=fract(p4*vec4(0.1031,0.1030,0.0973,0.1099)); p4+=dot(p4,p4.wzxy+33.33); return fract((p4.x+p4.y)*(p4.z+p4.w)); }
+
+float vn2(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(h12(i),h12(i+vec2(1,0)),f.x), mix(h12(i+vec2(0,1)),h12(i+vec2(1,1)),f.x), f.y);
+}
+float vn3(vec3 p){
+  vec3 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=mix(mix(h13(i),h13(i+vec3(1,0,0)),f.x), mix(h13(i+vec3(0,1,0)),h13(i+vec3(1,1,0)),f.x), f.y);
+  float b=mix(mix(h13(i+vec3(0,0,1)),h13(i+vec3(1,0,1)),f.x), mix(h13(i+vec3(0,1,1)),h13(i+vec3(1,1,1)),f.x), f.y);
+  return mix(a,b,f.z);
+}
+float vn4(vec4 p){
+  vec4 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float r=0.0;
+  for(int a=0;a<2;a++)for(int b=0;b<2;b++)for(int c=0;c<2;c++)for(int d=0;d<2;d++){
+    vec4 o=vec4(float(a),float(b),float(c),float(d));
+    float w=mix(1.0-f.x,f.x,o.x)*mix(1.0-f.y,f.y,o.y)*mix(1.0-f.z,f.z,o.z)*mix(1.0-f.w,f.w,o.w);
+    r+=w*h14(i+o);
+  }
+  return r;
+}
+float fbm2(vec2 p,int oct){
+  float a=0.5,s=0.0,n=0.0;
+  for(int i=0;i<8;i++){ if(i>=oct) break; s+=a*vn2(p); n+=a; p=p*2.03+vec2(1.7,9.2); a*=0.5; }
+  return s/max(n,1e-5);
+}
+float fbm4(vec4 p,int oct){
+  float a=0.5,s=0.0,n=0.0;
+  for(int i=0;i<5;i++){ if(i>=oct) break; s+=a*vn4(p); n+=a; p=p*2.03+vec4(1.7,9.2,4.1,7.3); a*=0.5; }
+  return s/max(n,1e-5);
+}
+vec2 rot(vec2 p,float a){ float c=cos(a),s=sin(a); return vec2(c*p.x-s*p.y, s*p.x+c*p.y); }
+
+/* Integer modulo that survives the drivers.
+   GLSL mod(x,y) is x - y*floor(x/y), and several drivers evaluate x/y as
+   x*(1/y). With y=6 the reciprocal rounds down, floor(6*0.16666666) is 0,
+   and mod(6.0,6.0) hands back 6.0 instead of 0. Any tile index that scrolls
+   by a whole period per loop lands on exactly that case at the seam, so it
+   has to be computed without trusting the division. Both arguments here are
+   integer valued and at least 1/16 apart from a false floor, so the nudge is
+   safe by a wide margin. */
+vec2 imod(vec2 v,float per){ return v - per*floor(v/per + 1e-3); }
+
+vec4 hexCell(vec2 p){
+  vec2 s=vec2(1.0,1.7320508), h=s*0.5;
+  vec2 a=mod(p,s)-h, b=mod(p-h,s)-h;
+  vec2 gv = dot(a,a)<dot(b,b) ? a : b;
+  return vec4(gv, p-gv);
+}
+float hexDist(vec2 p){ p=abs(p); return max(dot(p,normalize(vec2(1.0,1.7320508))), p.x); }
+
+vec2 kal(vec2 p,float n){
+  if(n<1.5) return p;
+  float r=length(p);
+  float a=atan(p.y,p.x)-uMirrorRot;
+  float seg=TAU/n;
+  a=mod(a,seg);
+  a=abs(a-seg*0.5);
+  a+=uMirrorRot;
+  return vec2(cos(a),sin(a))*r;
+}
+vec2 uvBase(){
+  vec2 uv=(gl_FragCoord.xy-0.5*uRes)/min(uRes.x,uRes.y);
+  uv=kal(uv,uMirror);
+  uv=rot(uv,uRot);
+  return uv*uZoom+uPan;
+}
+`;
+
+const GLSL_MAIN = `
+void main(){
+  vec3 c = field(uvBase());
+  c = max(c, 0.0);
+  float a = 1.0;
+  if(uAlphaMode > 0.5){
+    float l = dot(c, vec3(0.2126,0.7152,0.0722));
+    a = clamp((l - uAlphaBias) * uAlphaGain, 0.0, 1.0);
+  }
+  O = vec4(c, a);
+}
+`;
+
+/* ------------------------------------------------------------------ */
+/* param helper: p(index, key, label, min, max, default, step, isInt)  */
+const P  = (i, k, n, mn, mx, d, st) => ({ i, k, n, mn, mx, d, st: st || 0.001 });
+const PI_= (i, k, n, mn, mx, d) => ({ i, k, n, mn, mx, d, st: 1, int: true });
+
+const GENS = [
+{
+  id:'plasma', name:'Plasma Bloom',
+  params:[ P(0,'scale','Scale',0.5,20,4.2,0.01), P(1,'warp','Warp',0,3,0.85,0.01),
+           P(2,'bands','Colour bands',0.2,6,1.0,0.01), PI_(3,'ca','Drift A x/loop',0,8,1),
+           PI_(4,'cb','Drift B x/loop',0,8,1), P(5,'grit','Grain field',0,1,0.22,0.005),
+           P(6,'gs','Grain scale',0.3,8,2.1,0.01), P(7,'shift','Colour shift',0,1,0,0.001) ],
+  body:`
+vec3 field(vec2 uv){
+  float k1=floor(uP[3]), k2=floor(uP[4]);
+  vec2 p=uv*uP[0];
+  p += uP[1]*vec2(sin(p.y*1.7+TA*k1), cos(p.x*1.3-TA*k2));
+  float v = sin(p.x+TA*k1) + sin(p.y*1.13-TA*k2) + sin((p.x+p.y)*0.71+TA*k1) + sin(length(p)*0.93-TA*k2);
+  v *= 0.25;
+  v += uP[5]*(vn2(p*uP[6]+vec2(cos(TA*k1),sin(TA*k1))*2.0)-0.5);
+  return pal(v*uP[2]+uP[7]);
+}`
+},
+{
+  id:'warp', name:'Domain Warp',
+  params:[ P(0,'scale','Scale',0.3,8,1.7,0.01), PI_(1,'cyc','Churn x/loop',1,6,1),
+           P(2,'amt','Churn radius',0.05,3,0.75,0.01), PI_(3,'oct','Octaves',1,7,5),
+           P(4,'w','Warp strength',0.5,8,3.4,0.01), P(5,'ridge','Ridged',0,1,0.25,0.005),
+           P(6,'con','Colour range',0.2,6,1.6,0.01), P(7,'tint','Warp tint',0,1.5,0.35,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float k=floor(uP[1]);
+  vec2 ph=vec2(cos(TA*k),sin(TA*k))*uP[2];
+  vec2 p=uv*uP[0];
+  int oc=int(uP[3]);
+  vec2 q=vec2(fbm2(p+ph,oc), fbm2(p+vec2(5.2,1.3)-ph,oc));
+  vec2 r=vec2(fbm2(p+uP[4]*q+ph.yx*1.3+vec2(1.7,9.2),oc), fbm2(p+uP[4]*q-ph.yx*1.3+vec2(8.3,2.8),oc));
+  float f=fbm2(p+uP[4]*r,oc);
+  f=mix(f, 1.0-abs(f*2.0-1.0), uP[5]);
+  f=clamp((f-0.5)*2.6+0.5, 0.0, 1.0);   /* fbm hugs 0.5; open it out */
+  return pal(f*uP[6]+dot(r,vec2(uP[7])));
+}`
+},
+{
+  id:'mandala', name:'Mandala',
+  params:[ P(0,'rings','Rings',0.2,12,2.6,0.01), PI_(1,'pet','Petals',2,32,8),
+           P(2,'twist','Twist',-4,4,1.1,0.01), PI_(3,'spin','Spin x/loop',0,6,1),
+           P(4,'glow','Edge glow',0,3,1.3,0.01), P(5,'rad','Radial colour',-3,3,0.9,0.01),
+           P(6,'thick','Edge width',0.02,1,0.35,0.005), P(7,'base','Base level',0,1,0.22,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float r=length(uv), a=atan(uv.y,uv.x);
+  float pt=floor(uP[1]), sp=floor(uP[3]);
+  float w=sin(a*pt + r*uP[2]*TAU + TA*sp);
+  float g=sin(r*uP[0]*TAU - TA*sp);
+  float f=w*g;
+  float e=smoothstep(uP[6],0.0,abs(f));
+  vec3 c=pal(f*0.5+0.5+r*uP[5]);
+  return c*(uP[7]+e*uP[4]);
+}`
+},
+{
+  id:'tunnel', name:'Hypertunnel',
+  params:[ P(0,'depth','Depth',0.05,2,0.34,0.005), PI_(1,'fly','Fly x/loop',1,8,2),
+           PI_(2,'twist','Twist',-4,4,1), PI_(3,'rings','Rings',1,24,6),
+           PI_(4,'stripes','Stripes',1,32,8), P(5,'mix','Pattern mix',0,1,0.6,0.005),
+           PI_(6,'spin','Spin x/loop',0,4,1), P(7,'core','Dark core',0.0,0.6,0.06,0.002),
+           P(8,'gain','Gain',0.3,3,1.25,0.01) ],
+  body:`
+vec3 field(vec2 uv){
+  float r=max(length(uv),1e-3), a=atan(uv.y,uv.x);
+  float z=uP[0]/r + T*floor(uP[1]);
+  float tw=floor(uP[2]);
+  float ang=a/TAU + tw*z + T*floor(uP[6]);
+  float rings=0.5+0.5*sin(z*TAU*floor(uP[3]));
+  float stripes=0.5+0.5*sin(ang*TAU*floor(uP[4]));
+  float m=mix(1.0, (rings*stripes)*3.4-0.35, uP[5]);
+  vec3 c=pal(z);
+  c*=clamp(m,0.0,4.0)*uP[8];
+  c*=smoothstep(0.0,uP[7]+1e-3,r);
+  return c;
+}`
+},
+{
+  id:'ribbons', name:'Flow Ribbons',
+  params:[ P(0,'scale','Scale',0.5,12,3.2,0.01), PI_(1,'cyc','Flow x/loop',1,6,1),
+           P(2,'amt','Flow radius',0.05,3,0.9,0.01), PI_(3,'lay','Layers',1,5,4),
+           P(4,'ns','Noise scale',0.1,3,0.55,0.005), P(5,'nw','Noise warp',0,4,1.5,0.01),
+           P(6,'freq','Ribbon count',0.2,8,1.6,0.01), P(7,'soft','Edge softness',0.02,0.5,0.19,0.002),
+           P(8,'floor','Floor',0,1,0.18,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float k=floor(uP[1]);
+  vec2 ph=vec2(cos(TA*k),sin(TA*k))*uP[2];
+  vec2 p=uv*uP[0];
+  float w=0.0, wn=0.0;
+  for(int i=0;i<5;i++){
+    float fi=float(i); if(fi>=uP[3]) break;
+    vec2 q=p+ph*(1.0+fi*0.35)+vec2(fi*7.31, fi*3.17);
+    float amp=1.0/(1.0+fi*0.7);
+    w += amp*sin(q.y*(1.0+fi*0.55) + (fbm2(q*uP[4],3)-0.5)*uP[5]*TAU + TA*k);
+    wn += amp;
+  }
+  w/=max(wn,1e-4);
+  float band=abs(fract(w*uP[6])-0.5);
+  vec3 c=pal(w*0.5+0.5);
+  return c*mix(uP[8],1.35,smoothstep(0.0,uP[7],band));
+}`
+},
+{
+  id:'moire', name:'Moire Interference',
+  params:[ PI_(0,'n','Layers',2,6,3), P(1,'spread','Angle spread',0,1.6,0.42,0.005),
+           PI_(2,'spin','Spin x/loop',1,6,1), P(3,'freq','Frequency',0.5,26,6.5,0.01),
+           P(4,'ramp','Frequency ramp',0,1,0.18,0.005), P(5,'off','Offset',0,1,0.3,0.005),
+           P(6,'lin','Linear <-> radial',0,1,0.35,0.005), P(7,'con','Colour range',0.2,4,1.1,0.01) ],
+  body:`
+vec3 field(vec2 uv){
+  float g=0.0, n=floor(uP[0]);
+  for(int i=0;i<6;i++){
+    float fi=float(i); if(fi>=n) break;
+    float dir=(mod(fi,2.0)<0.5)?1.0:-1.0;
+    vec2 q=rot(uv-vec2(cos(fi*2.4),sin(fi*2.4))*uP[5], uP[1]*fi + dir*TA*floor(uP[2]));
+    float f=uP[3]*(1.0+fi*uP[4]);
+    g += mix(sin(length(q)*f*TAU), sin(q.x*f*TAU), uP[6]);
+  }
+  g/=max(n,1.0);
+  return pal(g*uP[7]+0.5);
+}`
+},
+{
+  id:'meta', name:'Metaball Lava',
+  params:[ PI_(0,'n','Blobs',1,12,8), PI_(1,'orb','Orbit seed',0,7,0),
+           P(2,'rad','Orbit radius',0.05,1.4,0.62,0.005), P(3,'sz','Blob size',0.001,0.09,0.030,0.0002),
+           P(4,'gain','Field gain',0.2,8,3.6,0.01), P(5,'spread','Colour spread',0,2,0.7,0.005),
+           P(6,'off','Colour offset',0,1,0,0.005), P(7,'ramp','Field colour',0,2,0.7,0.005),
+           P(8,'mixc','Per-blob colour',0,1,0.4,0.005),
+           P(9,'thr','Surface level',0.05,0.95,0.62,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float n=floor(uP[0]);
+  float s=0.0; vec3 cc=vec3(0.0);
+  for(int i=0;i<12;i++){
+    float fi=float(i); if(fi>=n) break;
+    float ph=h11(fi*7.31+uSeed*13.7)*TAU;
+    float a=1.0+floor(mod(fi*2.0+uP[1],4.0));
+    float b=1.0+floor(mod(fi*3.0+uP[1]+1.0,4.0));
+    float rad=uP[2]*(0.35+0.9*h11(fi*3.17+uSeed*5.1+5.0));
+    vec2 c=rad*vec2(cos(TA*a+ph), sin(TA*b+ph*1.7));
+    float d2=dot(uv-c,uv-c);
+    float w=uP[3]/(d2+0.0015);
+    s+=w; cc+=pal(fi/max(n,1.0)*uP[5]+uP[6])*w;
+  }
+  /* Bound the field before shading it. An inverse-square sum is unbounded,
+     so a log of it still runs past 1 near a blob centre and every core
+     clipped to flat white. s/(1+s) lands in 0..1 by construction, which
+     makes the surface threshold mean something and keeps the cores in
+     gamut. */
+  vec3 base=cc/max(s,1e-4);
+  float f=s*uP[4];
+  f=f/(1.0+f);
+  float thr=uP[9];
+  float body=smoothstep(thr, thr+0.10, f);
+  float glow=smoothstep(thr*0.30, thr+0.06, f);
+  vec3 c=mix(pal(f*uP[7]*5.0+uP[6]), base, uP[8]);
+  return c*min(glow*0.45 + body*0.72, 1.05);
+}`
+},
+{
+  id:'voronoi', name:'Voronoi Crystal',
+  params:[ P(0,'scale','Scale',0.5,16,3.4,0.01), PI_(1,'orb','Drift seed',0,7,0),
+           P(2,'jit','Drift radius',0.0,0.44,0.3,0.002), P(3,'cid','Cell colour',0,3,1.0,0.005),
+           P(4,'grad','Inner gradient',-2,2,0.55,0.005), P(5,'edge','Edge width',0.005,0.5,0.09,0.002),
+           P(6,'dark','Edge darkness',0,1,0.06,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  vec2 p=uv*uP[0];
+  vec2 ip=floor(p), fp=fract(p);
+  float d1=9.0,d2=9.0; vec2 id=vec2(0.0);
+  for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+    vec2 g=vec2(float(i),float(j));
+    vec2 o=h22(ip+g+uSeed*7.0);
+    float a=1.0+floor(mod(o.x*7.0+uP[1],4.0));
+    float b=1.0+floor(mod(o.y*7.0+uP[1]+1.0,4.0));
+    vec2 pos=vec2(0.5)+uP[2]*vec2(cos(TA*a+o.x*TAU), sin(TA*b+o.y*TAU));
+    float d=length(g+pos-fp);
+    if(d<d1){ d2=d1; d1=d; id=ip+g; } else if(d<d2){ d2=d; }
+  }
+  float edge=d2-d1;
+  float cid=h12(id+uSeed*3.7);
+  vec3 c=pal(cid*uP[3]+d1*uP[4]);
+  return mix(c*uP[6], c, smoothstep(0.0,uP[5],edge));
+}`
+},
+{
+  id:'truchet', name:'Truchet Weave',
+  params:[ P(0,'scale','Scale',0.5,14,3.6,0.01), PI_(1,'sx','Scroll X x/loop',-3,3,1),
+           PI_(2,'sy','Scroll Y x/loop',-3,3,0), P(3,'w','Line width',0.02,0.5,0.13,0.002),
+           P(4,'cid','Tile colour',0,3,0.9,0.005), P(5,'grad','Line gradient',-4,4,1.6,0.01),
+           P(6,'bg','Background level',0,1,0.1,0.005), PI_(7,'per','Tile period',2,16,6) ],
+  body:`
+vec3 field(vec2 uv){
+  float per=floor(uP[7]);
+  vec2 p=uv*uP[0];
+  /* scroll as whole tiles + a fraction, so adding it never costs mantissa bits */
+  vec2 ph=T*vec2(floor(uP[1]),floor(uP[2]))*per;
+  vec2 phi=floor(ph), phf=ph-phi;
+  vec2 q=p+phf;
+  vec2 ip=floor(q)+phi, fp=fract(q)-0.5;
+  vec2 cell=imod(ip,per);
+  if(h12(cell+uSeed*11.0)<0.5) fp.x=-fp.x;
+  float d=min(abs(length(fp-vec2(0.5))-0.5), abs(length(fp+vec2(0.5))-0.5));
+  float m=smoothstep(uP[3], uP[3]*0.35, d);
+  vec3 c=pal(h12(cell*1.7+uSeed*3.0+3.0)*uP[4] + d*uP[5]);
+  return c*mix(uP[6],1.0,m);
+}`
+},
+{
+  id:'julia', name:'Julia Morph',
+  params:[ PI_(0,'cyc','Morph x/loop',1,5,1), P(1,'cx','Centre X',-1.2,1.2,-0.62,0.001),
+           P(2,'cy','Centre Y',-1.2,1.2,0.42,0.001), P(3,'r','Morph radius',0.0,0.6,0.13,0.001),
+           P(4,'z','Zoom',0.2,4,1.05,0.005), PI_(5,'it','Iterations',8,256,110),
+           P(6,'col','Colour rate',0.05,6,2.6,0.005), P(7,'off','Colour offset',0,1,0,0.005),
+           P(8,'ink','Interior',0,1,0.12,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float k=floor(uP[0]);
+  vec2 c=vec2(uP[1],uP[2]) + uP[3]*vec2(cos(TA*k),sin(TA*k));
+  vec2 z=uv*uP[4];
+  float maxI=uP[5], i=0.0, m=0.0;
+  for(int n=0;n<256;n++){
+    if(float(n)>=maxI) break;
+    z=vec2(z.x*z.x-z.y*z.y, 2.0*z.x*z.y)+c;
+    m=dot(z,z);
+    if(m>1024.0) break;
+    i+=1.0;
+  }
+  float sm=i;
+  if(m>1024.0) sm = i + 1.0 - log2(max(log2(max(m,1.0001)),1e-6));
+  vec3 col=pal(sm*uP[6]*0.02 + uP[7]);
+  if(i>=maxI-0.5) col*=uP[8];
+  return col;
+}`
+},
+{
+  id:'chladni', name:'Standing Waves',
+  params:[ P(0,'scale','Scale',0.2,6,1.15,0.005), PI_(1,'n','Modes',1,8,4),
+           PI_(2,'ma','Mode seed A',0,9,2), PI_(3,'mb','Mode seed B',0,9,5),
+           PI_(4,'cyc','Beat x/loop',1,4,1), P(5,'edge','Nodal width',0.01,1,0.2,0.005),
+           P(6,'col','Colour range',0.2,4,1.1,0.005), P(7,'dark','Field darkness',0,1,0.35,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  vec2 p=uv*uP[0];
+  float n=floor(uP[1]), f=0.0;
+  for(int i=0;i<8;i++){
+    float fi=float(i); if(fi>=n) break;
+    float m=1.0+floor(mod(fi*3.0+uP[2],7.0));
+    float q=1.0+floor(mod(fi*5.0+uP[3],7.0));
+    float amp=cos(TA*(1.0+floor(mod(fi,3.0)))*floor(uP[4]) + fi*1.7);
+    f += amp*(sin(p.x*m*PI)*sin(p.y*q*PI) - sin(p.x*q*PI)*sin(p.y*m*PI));
+  }
+  f/=max(n,1.0);
+  float e=smoothstep(uP[5],0.0,abs(f));
+  vec3 c=pal(f*uP[6]+0.5);
+  return mix(c*uP[7], c, e);
+}`
+},
+{
+  id:'phyllo', name:'Phyllotaxis', heavy:true,
+  params:[ PI_(0,'n','Seeds',8,256,150), P(1,'r','Spread',0.2,2.2,0.95,0.005),
+           PI_(2,'spin','Spin x/loop',0,4,1), PI_(3,'tw','Per-seed twist',0,3,1),
+           P(4,'sz','Dot size',0.005,0.3,0.055,0.001), P(5,'taper','Inner size',0.05,2,0.45,0.005),
+           P(6,'col','Colour range',0,3,1.0,0.005), P(7,'off','Colour offset',0,1,0,0.005),
+           P(8,'gain','Gain',0.1,3,0.85,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float n=floor(uP[0]);
+  vec3 acc=vec3(0.0);
+  const float ga=2.399963229728653;
+  for(int i=0;i<256;i++){
+    float fi=float(i); if(fi>=n) break;
+    float tt=fi/max(n-1.0,1.0);
+    float r=uP[1]*sqrt(tt);
+    float a=fi*ga + TA*floor(uP[2]) + fi*TA*floor(uP[3]);
+    vec2 c=r*vec2(cos(a),sin(a));
+    float rad=uP[4]*(uP[5]+(1.0-uP[5])*tt);
+    float d=length(uv-c)/max(rad,1e-4);
+    acc += pal(tt*uP[6]+uP[7])*exp(-d*d);
+  }
+  return acc*uP[8];
+}`
+},
+{
+  id:'ripple', name:'Ripple Sources',
+  params:[ PI_(0,'n','Sources',1,10,4), PI_(1,'orb','Orbit seed',0,7,0),
+           P(2,'rad','Orbit radius',0.0,1.2,0.42,0.005), P(3,'freq','Wavelength',0.3,12,3.2,0.01),
+           PI_(4,'cyc','Waves x/loop',1,8,2), P(5,'fall','Falloff',0,6,1.2,0.01),
+           P(6,'col','Colour range',0.2,5,1.4,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float n=floor(uP[0]), f=0.0;
+  for(int i=0;i<10;i++){
+    float fi=float(i); if(fi>=n) break;
+    float ph=h11(fi*4.13+uSeed*9.3)*TAU;
+    float a=1.0+floor(mod(fi+uP[1],3.0));
+    float b=1.0+floor(mod(fi*2.0+uP[1],3.0));
+    vec2 c=uP[2]*vec2(cos(TA*a+ph), sin(TA*b+ph*1.3));
+    float d=length(uv-c);
+    f += sin(d*uP[3]*TAU - TA*floor(uP[4]) + ph)/(1.0+d*uP[5]);
+  }
+  f/=max(n,1.0);
+  return pal(f*uP[6]+0.5);
+}`
+},
+{
+  id:'hex', name:'Hex Lattice',
+  params:[ P(0,'scale','Scale',0.5,20,4.4,0.01), PI_(1,'cyc','Pulse x/loop',1,6,1),
+           P(2,'wave','Radial wave',-3,3,0.8,0.005), P(3,'r','Cell radius',0.2,0.5,0.44,0.002),
+           P(4,'edge','Edge softness',0.01,0.3,0.06,0.002), P(5,'cid','Cell colour',0,3,0.75,0.005),
+           P(6,'pc','Pulse colour',0,2,0.45,0.005), P(7,'bg','Gap level',0,1,0.05,0.005),
+           P(8,'floor','Dim floor',0,1,0.3,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  vec2 p=uv*uP[0];
+  vec4 hc=hexCell(p);
+  vec2 gv=hc.xy, id=hc.zw;
+  float rnd=h12(id*1.3+uSeed*5.0);
+  float sp=1.0+floor(mod(rnd*9.0+uP[1],4.0));
+  float pulse=0.5+0.5*sin(TA*sp + rnd*TAU + length(id)*uP[2]);
+  float d=hexDist(gv);
+  float e=smoothstep(uP[3], uP[3]-uP[4], d);
+  vec3 c=pal(rnd*uP[5] + pulse*uP[6]);
+  return c*mix(uP[7],1.0,e)*(uP[8]+pulse*(1.0-uP[8]));
+}`
+},
+{
+  id:'fold', name:'Kaleido Fold',
+  params:[ PI_(0,'cyc','Morph x/loop',1,4,1), PI_(1,'it','Folds',2,24,13),
+           P(2,'rad','Morph radius',0.0,0.35,0.075,0.001), P(3,'ang','Pre-rotation',-3.2,3.2,0.0,0.005),
+           P(4,'cx','Fold X',0.15,1.5,0.76,0.002), P(5,'cy','Fold Y',0.0,1.5,0.44,0.002),
+           P(6,'tscale','Trap scale',0.2,8,2.0,0.01), P(7,'sharp','Sharpness',0.2,14,4.5,0.01),
+           P(8,'col','Colour range',0.2,6,2.4,0.01), P(9,'trail','Trap tint',0,3,0.9,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  /* The Kali set: p = abs(p)/dot(p,p) - c, read through a nearest-approach
+     orbit trap. Averaging the orbit was useless - the fold converges to the
+     same attractor wherever it starts, so every pixel came out one flat
+     colour. The trap is violently sensitive to where the orbit began, and
+     that sensitivity is the whole picture. c walks a circle once per loop,
+     which morphs the fractal and returns it exactly. */
+  vec2 p=rot(uv,uP[3]);
+  float k=floor(uP[0]), it=floor(uP[1]);
+  vec2 c=vec2(uP[4],uP[5]) + uP[2]*vec2(cos(TA*k),sin(TA*k));
+  float trap=1e9;
+  for(int i=0;i<24;i++){
+    if(float(i)>=it) break;
+    p=abs(p)/max(dot(p,p),1e-5) - c;
+    trap=min(trap, dot(p,p)*uP[6]);
+  }
+  float f=1.0-exp(-sqrt(max(trap,0.0))*uP[7]);
+  return pal(f*uP[8] + log(1.0+trap)*uP[9]);
+}`
+},
+{
+  id:'retro', name:'Retro Horizon',
+  params:[ P(0,'hor','Horizon',-0.4,0.4,-0.02,0.002), P(1,'depth','Depth scale',0.02,1.2,0.22,0.002),
+           PI_(2,'fly','Fly x/loop',1,8,2), P(3,'gx','Lanes',0.2,6,1.1,0.005),
+           P(4,'lw','Line weight',0.005,0.4,0.075,0.002), P(5,'gc','Ground colour',0,2,0.5,0.005),
+           P(6,'lc','Lane colour',0,2,0.25,0.005), P(7,'haze','Haze',0,1.5,0.35,0.005),
+           P(8,'sy','Sun height',0.0,0.9,0.30,0.005), P(9,'sr','Sun radius',0.05,0.8,0.30,0.005),
+           PI_(10,'sb','Sun bands',2,30,11), P(11,'sc','Sun colour',0,2,0.9,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float hor=uP[0];
+  vec3 col=vec3(0.0);
+  if(uv.y<hor){
+    float dy=hor-uv.y;
+    float z=min(1.0/max(dy,1e-4), 44.0);      /* clamped: 1/dy explodes past float precision */
+    float haze=smoothstep(44.0, 26.0, z);
+    dy=1.0/z;
+    float x=uv.x*z;
+    float zz=z*uP[1] + T*floor(uP[2]);
+    float gx=abs(fract(x*uP[3])-0.5);
+    float gz=abs(fract(zz)-0.5);
+    float lw=clamp(uP[4]*dy*6.0,0.004,0.45);
+    float g=(smoothstep(lw,0.0,gx)+smoothstep(lw,0.0,gz))*haze;
+    col=pal(fract(zz)*uP[5] + fract(x*uP[3])*uP[6])*g;
+    col+=pal(0.55)*uP[7]*dy;
+  } else {
+    vec2 q=uv-vec2(0.0,hor+uP[8]);
+    float d=length(q);
+    float s=smoothstep(uP[9],uP[9]*0.96,d);
+    float bands=step(0.0,sin((uv.y-hor)*floor(uP[10])*TAU));
+    s*=mix(1.0,bands,smoothstep(hor+uP[8],hor+uP[8]-uP[9],uv.y));
+    col=pal(clamp((uv.y-hor-uP[8]+uP[9])/(2.0*uP[9]),0.0,1.0)*uP[11])*s;
+    col+=pal(0.08)*uP[7]*0.35;
+  }
+  return col;
+}`
+},
+{
+  id:'flow4', name:'Aether Field', heavy:true,
+  params:[ P(0,'scale','Scale',0.3,8,1.9,0.01), PI_(1,'cyc','Evolve x/loop',1,4,1),
+           P(2,'w','Time radius',0.1,2.5,0.9,0.005), PI_(3,'oct','Octaves',1,4,3),
+           P(4,'warp','Warp',0,4,1.7,0.01), P(5,'ridge','Ridged',0,1,0.4,0.005),
+           P(6,'col','Colour range',0.2,5,1.2,0.01), P(7,'gain','Contrast',0.3,3,0.75,0.005) ],
+  body:`
+vec3 field(vec2 uv){
+  float k=floor(uP[1]);
+  float cw=cos(TA*k)*uP[2], sw=sin(TA*k)*uP[2];
+  vec2 p=uv*uP[0];
+  int oc=int(uP[3]);
+  float a=fbm4(vec4(p, cw, sw), oc);
+  float b=fbm4(vec4(p+vec2(3.7,1.9), cw+11.0, sw-7.0), oc);
+  vec2 q=(vec2(a,b)-0.5)*uP[4];
+  float f=fbm4(vec4(p+q, cw+31.0, sw+17.0), oc);
+  f=mix(f, 1.0-abs(f*2.0-1.0), uP[5]);
+  f=smoothstep(0.26, 0.74, f);   /* opens the range out without clipping to flat white */
+  f=pow(clamp(f,0.0,1.0), 1.0/max(uP[7],0.05));
+  return pal(f*uP[6] + a*0.25);
+}`
+}
+];

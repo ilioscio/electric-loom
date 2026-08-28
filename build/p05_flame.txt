@@ -1,0 +1,291 @@
+/* =====================================================================
+   FLAME FRACTAL  (the Electric Sheep one)
+   ---------------------------------------------------------------------
+   A GPU chaos game: N attribute-less points, each running the iterated
+   function system in the vertex shader and splatting additively into a
+   float buffer, then log-density tone mapped. The IFS coefficients are
+   driven by cos/sin(TA * integer), so the whole attractor breathes and
+   returns to exactly its starting shape at T=1.
+   ===================================================================== */
+
+const FLAME_VS = `#version 300 es
+precision highp float;
+precision highp int;
+uniform float uT, uSeed, uPass, uIter, uNT, uVarA, uVarB, uSym, uSpeed;
+uniform float uMix, uJitter, uPointSize, uSpread;
+uniform vec2  uRes, uPan;
+uniform float uZoom, uRot;
+uniform sampler2D uPal;
+uniform float uPalRot;
+out vec3 vCol;
+
+const float TAU = 6.283185307179586;
+#define TA (TAU*uT)
+
+uint pcg(inout uint s){ s = s*747796405u + 2891336453u; uint w=((s>>((s>>28u)+4u))^s)*277803737u; return (w>>22u)^w; }
+float rnd(inout uint s){ return float(pcg(s)) * 2.3283064365386963e-10; }
+
+vec2 varApply(int v, vec2 p, float pa, float pb){
+  float x=p.x, y=p.y;
+  float r2=x*x+y*y, r=sqrt(r2)+1e-9, th=atan(x,y), ph=atan(y,x);
+  if(v==0)  return p;
+  if(v==1)  return vec2(sin(x), sin(y));
+  if(v==2)  return p/r2;
+  if(v==3)  return vec2(x*sin(r2)-y*cos(r2), x*cos(r2)+y*sin(r2));
+  if(v==4)  return vec2((x-y)*(x+y)/r, 2.0*x*y/r);
+  if(v==5)  return vec2(th/3.14159265, r-1.0);
+  if(v==6)  return r*vec2(sin(th+r), cos(th-r));
+  if(v==7)  return r*vec2(sin(th*r), -cos(th*r));
+  if(v==8)  return (th/3.14159265)*vec2(sin(3.14159265*r), cos(3.14159265*r));
+  if(v==9)  return vec2(cos(th)+sin(r), sin(th)-cos(r))/r;
+  if(v==10) return vec2(sin(th)/r, r*cos(th));
+  if(v==11) return vec2(sin(th)*cos(r), cos(th)*sin(r));
+  if(v==12){ float p0=sin(th+r), p1=cos(th-r); p0=p0*p0*p0; p1=p1*p1*p1; return r*vec2(p0+p1, p0-p1); }
+  if(v==13){ float om = (pa<0.5)?0.0:3.14159265; return sqrt(r)*vec2(cos(ph*0.5+om), sin(ph*0.5+om)); }
+  if(v==14) return vec2(x<0.0?2.0*x:x, y<0.0?y*0.5:y);
+  if(v==15) return (2.0/(r+1.0))*vec2(y,x);
+  if(v==16) return (2.0/(r+1.0))*p;
+  if(v==17) return (4.0/(r2+4.0))*p;
+  if(v==18) return vec2(sin(x), y);
+  if(v==19) return vec2(sin(x)/max(cos(y),1e-3), tan(y));
+  if(v==20) return vec2(x + pa*sin(tan(3.0*y)), y + pb*sin(tan(3.0*x)));
+  if(v==21) return exp(x-1.0)*vec2(cos(3.14159265*y), sin(3.14159265*y));
+  if(v==22){ float pw=pow(r, sin(ph)); return pw*vec2(cos(ph), sin(ph)); }
+  if(v==23) return vec2(cos(3.14159265*x)*cosh(y), -sin(3.14159265*x)*sinh(y));
+  if(v==24){ float t=r*(1.0+pa); return vec2(cos(th)*t, sin(th)*t)*0.6; }
+  return p;
+}
+
+void main(){
+  uint s = uint(gl_VertexID) * 2654435761u
+         ^ uint(uPass) * 40503u
+         ^ uint(uSeed * 65536.0);
+  s = s * 747796405u + 1u;
+  for(int w=0; w<3; w++) pcg(s);
+
+  vec2 p = vec2(rnd(s), rnd(s)) * 2.0 - 1.0;
+  float col = rnd(s);
+  int NT = int(uNT);
+  int iters = int(uIter);
+
+  for(int it=0; it<40; it++){
+    if(it>=iters) break;
+    int k = int(rnd(s) * float(NT));
+    if(k>=NT) k = NT-1;
+    float fk = float(k);
+
+    /* deterministic per-transform coefficients from the seed */
+    float g0 = fract(sin(fk*12.9898 + uSeed*7.233) * 43758.5453);
+    float g1 = fract(sin(fk*78.2330 + uSeed*3.117) * 24634.6345);
+    float g2 = fract(sin(fk*39.4260 + uSeed*9.771) * 12784.1234);
+    float g3 = fract(sin(fk*93.9898 + uSeed*1.443) * 39812.7761);
+    float g4 = fract(sin(fk*27.1210 + uSeed*5.913) * 51234.9871);
+    float g5 = fract(sin(fk*61.7770 + uSeed*8.221) * 27341.3312);
+
+    /* animated affine: rotation and translation ride integer harmonics */
+    float spin = floor(1.0 + mod(g3*7.0 + uSpeed, 3.0));
+    float ang  = (g0*2.0-1.0)*3.14159265 + TA*spin;
+    float sc   = uSpread*(0.42 + 0.5*g1);
+    float ca = cos(ang)*sc, sa = sin(ang)*sc;
+    float shear = (g4*2.0-1.0)*0.55*uMix;
+    vec2 tr = vec2(g2*2.0-1.0, g5*2.0-1.0) * (0.55*uSpread)
+            + uJitter*vec2(cos(TA*floor(1.0+mod(g4*5.0,3.0)) + g1*TAU),
+                           sin(TA*floor(1.0+mod(g5*5.0,3.0)) + g2*TAU));
+
+    vec2 q = vec2(ca*p.x - sa*p.y + shear*p.y, sa*p.x + ca*p.y + shear*p.x) + tr;
+
+    int v = (g1 < uMix) ? int(uVarB) : int(uVarA);
+    if(g5 > 0.72) v = 0;
+    q = varApply(v, q, g0, g2);
+
+    p = q;
+    col = mix(col, fract(g3*1.7 + fk*0.37), 0.42);
+    if(any(isnan(p)) || any(isinf(p))) { p = vec2(rnd(s),rnd(s))*2.0-1.0; }
+  }
+
+  /* n-fold symmetry as a single final rotation. Applied inside the loop it
+     would just smear the attractor into a disc; applied once at the end it
+     stamps the finished shape into n arms, which is what a symmetric flame
+     actually is. Whole-turn fractions, so the loop stays exact. */
+  if(uSym > 1.5){
+    float arm = floor(rnd(s) * uSym);
+    float aa = (TAU/uSym) * arm;
+    float cs = cos(aa), sn = sin(aa);
+    p = vec2(cs*p.x - sn*p.y, sn*p.x + cs*p.y);
+  }
+
+  vCol = textureLod(uPal, vec2(col + uPalRot, 0.5), 0.0).rgb;
+
+  vec2 sp = p;
+  float c2=cos(-uRot), s2=sin(-uRot);
+  vec2 d = (sp - uPan)/uZoom;
+  vec2 scr = vec2(c2*d.x - s2*d.y, s2*d.x + c2*d.y);
+  vec2 ndc = scr * (2.0*min(uRes.x,uRes.y)) / uRes;
+  gl_Position = vec4(ndc, 0.0, 1.0);
+  gl_PointSize = uPointSize;
+}
+`;
+
+const FLAME_FS = `#version 300 es
+precision highp float;
+in vec3 vCol;
+uniform float uWeight;
+out vec4 O;
+void main(){ O = vec4(vCol*uWeight, uWeight); }
+`;
+
+const FLAME_RESOLVE = `#version 300 es
+precision highp float;
+uniform sampler2D uAcc;
+uniform vec2 uRes;
+uniform float uExposure, uGamma, uNorm, uMirror, uMirrorRot, uSat;
+uniform float uAlphaMode, uAlphaGain, uAlphaBias;
+out vec4 O;
+const float TAU = 6.283185307179586;
+vec2 kal(vec2 p,float n){
+  if(n<1.5) return p;
+  float r=length(p);
+  float a=atan(p.y,p.x)-uMirrorRot;
+  float seg=TAU/n; a=mod(a,seg); a=abs(a-seg*0.5); a+=uMirrorRot;
+  return vec2(cos(a),sin(a))*r;
+}
+void main(){
+  float m=min(uRes.x,uRes.y);
+  vec2 sc=(gl_FragCoord.xy-0.5*uRes)/m;
+  sc=kal(sc,uMirror);
+  vec2 tuv=sc*m/uRes+0.5;
+  vec4 a=texture(uAcc, tuv);
+  float dens=a.a;
+  vec3 c=a.rgb/max(dens,1e-6);
+  /* log density against a FIXED reference (never a per-frame maximum, which
+     would make the brightness flicker frame to frame and ruin the loop) */
+  float b=log(1.0+dens)/max(uNorm,1e-6);
+  b=pow(clamp(b,0.0,1.0), 1.0/max(uGamma,0.05));
+  float l=dot(c,vec3(0.2126,0.7152,0.0722));
+  c=mix(vec3(l), c, uSat);
+  vec3 outc=max(c*b*uExposure, 0.0);
+  float al=1.0;
+  if(uAlphaMode>0.5){
+    float lu=dot(outc,vec3(0.2126,0.7152,0.0722));
+    al=clamp((lu-uAlphaBias)*uAlphaGain,0.0,1.0);
+  }
+  O=vec4(outc, al);
+}
+`;
+
+const FLAME_DEF = {
+  id:'flame', name:'Flame Fractal', flame:true, heavy:true,
+  params:[
+    PI_(0,'nt','Transforms',2,6,3), PI_(1,'va','Variation A',0,24,13),
+    PI_(2,'vb','Variation B',0,24,3), P(3,'mix','B share',0,1,0.45,0.005),
+    PI_(4,'sym','Symmetry',1,12,4), P(5,'spread','Spread',0.4,1.6,0.95,0.005),
+    P(6,'jit','Breathe',0.0,0.6,0.14,0.002), PI_(7,'sp','Breathe x/loop',0,3,1),
+    P(8,'exp','Exposure',0.05,8,0.82,0.01), P(9,'gam','Gamma',0.6,4,2.9,0.01),
+    P(10,'sat','Saturation',0,2,1.05,0.005), PI_(11,'q','Quality',1,8,5),
+    PI_(12,'it','Iterations',6,40,22), P(13,'ps','Point size',1,3,1.4,0.1)
+  ]
+};
+const FLAME_VARS = ['linear','sinusoidal','spherical','swirl','horseshoe','polar','handkerchief',
+  'heart','disc','spiral','hyperbolic','diamond','ex','julia','bent','fisheye','eyefish','bubble',
+  'cylinder','tangent','popcorn','exponential','power','cosine','rings'];
+
+GENS.push(FLAME_DEF);
+
+/* =====================================================================
+   POST CHAIN
+   ===================================================================== */
+const VS_QUAD = `#version 300 es
+precision highp float;
+void main(){
+  vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2);
+  gl_Position = vec4(p*2.0-1.0, 0.0, 1.0);
+}
+`;
+
+const FS_BRIGHT = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uRes; uniform float uThresh, uKnee;
+out vec4 O;
+void main(){
+  vec2 uv=gl_FragCoord.xy/uRes;
+  vec3 c=texture(uSrc,uv).rgb;
+  float l=dot(c,vec3(0.2126,0.7152,0.0722));
+  float w=smoothstep(uThresh, uThresh+uKnee, l);
+  O=vec4(c*w,1.0);
+}
+`;
+
+const FS_BLUR = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uRes; uniform vec2 uDir;
+out vec4 O;
+void main(){
+  vec2 uv=gl_FragCoord.xy/uRes;
+  vec2 t=uDir/uRes;
+  vec3 s=texture(uSrc,uv).rgb*0.227027;
+  s+=texture(uSrc,uv+t*1.384615).rgb*0.316216;
+  s+=texture(uSrc,uv-t*1.384615).rgb*0.316216;
+  s+=texture(uSrc,uv+t*3.230769).rgb*0.070270;
+  s+=texture(uSrc,uv-t*3.230769).rgb*0.070270;
+  O=vec4(s,1.0);
+}
+`;
+
+const FS_COMPOSITE = `#version 300 es
+precision highp float;
+uniform sampler2D uScene, uBloomA, uBloomB;
+uniform vec2 uRes;
+uniform float uBloom, uExposure, uContrast, uSat, uGammaC, uVig, uVigSoft;
+uniform float uGrain, uFrameIdx, uChroma, uPosterize, uScan, uScanFreq;
+uniform float uAlphaOut;
+out vec4 O;
+float h13(vec3 p3){ p3=fract(p3*0.1031); p3+=dot(p3,p3.zyx+31.32); return fract((p3.x+p3.y)*p3.z); }
+void main(){
+  vec2 uv=gl_FragCoord.xy/uRes;
+  vec2 ctr=uv-0.5;
+  vec4 sc;
+  if(uChroma>0.0001){
+    vec2 o=ctr*uChroma*0.02;
+    vec4 a=texture(uScene, uv+o);
+    vec4 b=texture(uScene, uv);
+    vec4 c=texture(uScene, uv-o);
+    sc=vec4(a.r,b.g,c.b,max(max(a.a,b.a),c.a));
+  } else {
+    sc=texture(uScene, uv);
+  }
+  vec3 col=sc.rgb;
+  if(uBloom>0.0001){
+    vec3 bl=texture(uBloomA,uv).rgb*0.62 + texture(uBloomB,uv).rgb*0.38;
+    col+=bl*uBloom;
+  }
+  col*=uExposure;
+  col=(col-0.5)*uContrast+0.5;
+  float l=dot(col,vec3(0.2126,0.7152,0.0722));
+  col=mix(vec3(l),col,uSat);
+  col=max(col,0.0);
+  col=pow(col, vec3(1.0/max(uGammaC,0.05)));
+  if(uPosterize>1.5){ col=floor(col*uPosterize+0.5)/uPosterize; }
+  if(uScan>0.0001){
+    float s=0.5+0.5*sin(gl_FragCoord.y*uScanFreq*3.14159265);
+    col*=mix(1.0, s, uScan);
+  }
+  if(uVig>0.0001){
+    float d=length(ctr*vec2(uRes.x/uRes.y,1.0));
+    col*=mix(1.0, smoothstep(1.05, 1.05-uVigSoft, d), uVig);
+  }
+  if(uGrain>0.0001){
+    float g=h13(vec3(gl_FragCoord.xy, uFrameIdx))-0.5;
+    col+=g*uGrain*0.25;
+  }
+  col=clamp(col,0.0,1.0);
+  float a = (uAlphaOut>0.5) ? clamp(sc.a,0.0,1.0) : 1.0;
+  O=vec4(col, a);
+}
+`;
+
+const FS_BLIT = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc; uniform vec2 uRes;
+out vec4 O;
+void main(){ O = texture(uSrc, gl_FragCoord.xy/uRes); }
+`;

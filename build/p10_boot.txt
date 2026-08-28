@@ -1,0 +1,260 @@
+/* =====================================================================
+   PRESETS
+   ===================================================================== */
+const PRESET_KEY = 'eloom.presets.v1';
+function loadPresets() { try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '[]'); } catch (e) { return []; } }
+function savePresets(list) { try { localStorage.setItem(PRESET_KEY, JSON.stringify(list)); } catch (e) { toast('Could not save: local storage is full or blocked.'); } }
+function buildPresetList() {
+  const host = $('#presetList'); host.innerHTML = '';
+  const list = loadPresets();
+  if (!list.length) { host.appendChild(el('div', 'note', 'Nothing saved yet. Name a look and hit Save.')); return; }
+  list.forEach((p, i) => {
+    const row = el('div', 'row');
+    const b = el('button', 'btn sm', p.name);
+    b.style.flex = '1'; b.style.justifyContent = 'flex-start';
+    b.addEventListener('click', () => { applySnapshot(p.data); pushUrl(); scheduleThumbs(); toast('Loaded "' + p.name + '"'); });
+    const x = el('button', 'btn sm danger', '×');
+    x.addEventListener('click', () => { const l = loadPresets(); l.splice(i, 1); savePresets(l); buildPresetList(); });
+    row.appendChild(b); row.appendChild(x);
+    host.appendChild(row);
+  });
+}
+
+/* =====================================================================
+   HELP
+   ===================================================================== */
+function showHelp() {
+  $('#ovBig').textContent = 'Electric Loom';
+  $('#ovSmall').innerHTML =
+    'Every pattern is built so that time only enters as an angle, and every rate is a whole\n' +
+    'number of turns per loop. Frame N is therefore the same pixels as frame 0, and the\n' +
+    '<b>Verify loop</b> button proves it by rendering t=0 and t=1 and diffing them.\n\n' +
+    '<b>space</b> play / pause &nbsp; <b>R</b> randomize &nbsp; <b>P</b> reroll params\n' +
+    '<b>left / right</b> step one frame &nbsp; <b>S</b> seam check &nbsp; <b>V</b> verify\n' +
+    '<b>G</b> render GIF &nbsp; <b>W</b> render WebM &nbsp; <b>esc</b> close this\n\n' +
+    'Double-click any slider readout to reset that one control.\n' +
+    'The link in the address bar carries the whole look; Copy link shares it.\n\n' +
+    'Nothing here talks to a network. Open index.html straight off disk, or run\n' +
+    'serve.cmd for the multi-core GIF encoder.';
+  $('#ovSmall').style.whiteSpace = 'pre-wrap';
+  $('#overlayMsg').classList.add('show');
+}
+
+/* =====================================================================
+   WIRING
+   ===================================================================== */
+function wire() {
+  /* framing controls, with the seed on top */
+  const fc = $('#frameCtls');
+  buildCtlList(fc, FRAME_DEF, S.frame, pushUrlSoon);
+  const seedWrap = el('div', 'ctl');
+  const st = el('div', 'top'); st.appendChild(el('span', 'name', 'Seed'));
+  seedWrap.appendChild(st);
+  const sr = el('div', 'seedRow');
+  const si = document.createElement('input'); si.type = 'text'; si.id = 'seedInput'; si.value = S.seed;
+  si.addEventListener('input', () => { S.seed = si.value || 'x'; markDirty(); pushUrlSoon(); scheduleThumbs(); });
+  const sb = el('button', 'btn sm', 'roll');
+  sb.addEventListener('click', () => { S.seed = randSeedWord(); si.value = S.seed; markDirty(); pushUrl(); scheduleThumbs(); });
+  sr.appendChild(si); sr.appendChild(sb);
+  seedWrap.appendChild(sr);
+  seedWrap.appendChild(el('div', 'hint', 'Only the patterns with scattered elements use it: metaballs, voronoi, truchet, hex, ripples, flame.'));
+  fc.insertBefore(seedWrap, fc.firstChild);
+
+  buildCtlList($('#postCtls'), POST_DEF, S.post, pushUrlSoon);
+  buildCtlList($('#palExtra'), PAL_EXTRA_DEF, S.palX, pushUrlSoon);
+  buildCtlList($('#alphaCtls'), ALPHA_DEF, S.alpha, pushUrlSoon);
+  buildCtlList($('#ditherStrCtl'), [P(0, 'strength', 'Dither strength', 0, 1, 0.9, 0.005)], S.gif, () => { updateEstimate(); pushUrlSoon(); });
+
+  $('#palSpace').addEventListener('change', e => { S.pal.space = e.target.value; rebuildLut(); pushUrl(); });
+  $('#btnAddStop').addEventListener('click', () => {
+    const n = S.pal.stops.length;
+    S.pal.stops.push({ p: clamp(n / (n + 1), 0, 0.999), c: '#ffffff' });
+    S.pal.preset = -1; buildStops(); rebuildLut(); pushUrl();
+  });
+  $('#btnRevPal').addEventListener('click', () => {
+    S.pal.stops = S.pal.stops.slice().reverse().map((s, i, a) => ({ p: i / a.length, c: s.c }));
+    S.pal.preset = -1; buildStops(); rebuildLut(); pushUrl();
+  });
+  $('#btnRandPal').addEventListener('click', () => {
+    S.pal.stops = randomPalette(); S.pal.preset = -1;
+    buildStops(); buildPalPresets(); rebuildLut(); pushUrl();
+  });
+
+  /* output */
+  const setSize = (w, h) => {
+    S.out.w = clamp(Math.round(w / 2) * 2, 16, 4096);
+    S.out.h = clamp(Math.round(h / 2) * 2, 16, 4096);
+    $('#outW').value = S.out.w; $('#outH').value = S.out.h;
+    syncSizePreset(); updateEstimate(); layout(); markDirty(); pushUrlSoon();
+  };
+  $('#sizePreset').addEventListener('change', e => {
+    if (e.target.value === 'custom') return;
+    const [w, h] = e.target.value.split('x').map(Number);
+    setSize(w, h);
+  });
+  $('#outW').addEventListener('change', e => setSize(+e.target.value, S.out.h));
+  $('#outH').addEventListener('change', e => setSize(S.out.w, +e.target.value));
+  $('#outDur').addEventListener('change', e => {
+    S.out.dur = clamp(parseFloat(e.target.value) || 4, 0.5, 15);
+    e.target.value = S.out.dur; updateEstimate(); markDirty(); pushUrlSoon();
+  });
+  $('#outFps').addEventListener('change', e => { S.out.fps = +e.target.value; updateEstimate(); markDirty(); pushUrlSoon(); });
+  $('#outSS').addEventListener('change', e => { S.out.ss = +e.target.value; updateEstimate(); markDirty(); pushUrlSoon(); });
+  $('#bgMode').addEventListener('change', e => {
+    S.out.bg = e.target.value;
+    $('#alphaCtls').style.display = S.out.bg === 'alpha' ? '' : 'none';
+    markDirty(); pushUrlSoon();
+  });
+  $('#gifColors').addEventListener('change', e => { S.gif.colors = +e.target.value; updateEstimate(); pushUrlSoon(); });
+  $('#gifDither').addEventListener('change', e => { S.gif.dither = e.target.value; updateEstimate(); pushUrlSoon(); });
+  $('#gifSharpPal').addEventListener('change', e => { S.gif.kmeans = e.target.checked; pushUrlSoon(); });
+  $('#vidCodec').addEventListener('change', e => { S.vid.codec = e.target.value; pushUrlSoon(); });
+  $('#vidQ').addEventListener('change', e => { S.vid.q = parseFloat(e.target.value); updateEstimate(); pushUrlSoon(); });
+
+  /* transport */
+  $('#btnPlay').addEventListener('click', () => togglePlay());
+  $('#btnSeam').addEventListener('click', () => toggleSeam());
+  $('#scrub').addEventListener('input', e => {
+    tNow = clamp(+e.target.value / 1000, 0, 0.9999);
+    e.target.style.setProperty('--pct', (tNow * 100).toFixed(1) + '%');
+    markDirty();
+  });
+  $('#previewQ').addEventListener('change', markDirty);
+  $('#btnVerify').addEventListener('click', verifyLoop);
+
+  /* export */
+  $('#btnGif').addEventListener('click', exportGif);
+  $('#btnWebm').addEventListener('click', exportWebm);
+  $('#btnPngs').addEventListener('click', exportPngs);
+  $('#btnCancel').addEventListener('click', () => { CANCEL = true; toast('Stopping...'); });
+
+  /* header */
+  $('#btnRandom').addEventListener('click', () => doRandomize(true));
+  $('#btnRandParams').addEventListener('click', () => doRandomize(false));
+  $('#btnCopyLink').addEventListener('click', async () => {
+    pushUrl();
+    try { await navigator.clipboard.writeText(location.href); toast('Link copied. It rebuilds this exact look.'); }
+    catch (e) { toast('Copy blocked; the link is in the address bar.'); }
+  });
+  $('#btnHelp').addEventListener('click', showHelp);
+  $('#overlayMsg').addEventListener('click', hideOverlay);
+
+  /* presets */
+  $('#btnSavePreset').addEventListener('click', () => {
+    const nm = ($('#presetName').value || '').trim() || (GEN_BY_ID[S.gen].name + ' ' + S.seed);
+    const list = loadPresets();
+    list.unshift({ name: nm, data: snapshot() });
+    savePresets(list.slice(0, 60)); buildPresetList();
+    $('#presetName').value = ''; toast('Saved "' + nm + '"');
+  });
+  $('#btnExportJson').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({ presets: loadPresets(), current: snapshot() }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'electric-loom-presets.json'; a.click();
+  });
+  $('#btnImportJson').addEventListener('click', () => $('#fileJson').click());
+  $('#fileJson').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const o = JSON.parse(await f.text());
+      if (o.presets && Array.isArray(o.presets)) {
+        savePresets(o.presets.concat(loadPresets()).slice(0, 120));
+        buildPresetList(); toast('Imported ' + o.presets.length + ' looks.');
+      }
+      if (o.current) { applySnapshot(o.current); pushUrl(); scheduleThumbs(); }
+      else if (o.gen) { applySnapshot(o); pushUrl(); scheduleThumbs(); }
+    } catch (err) { toast('That file did not parse as Electric Loom JSON.'); }
+    e.target.value = '';
+  });
+
+  /* keyboard */
+  window.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') {
+      if (e.key === 'Escape') e.target.blur();
+      return;
+    }
+    const N = totalFrames();
+    switch (e.key) {
+      case ' ': e.preventDefault(); togglePlay(); break;
+      case 'r': case 'R': if (!busy) doRandomize(true); break;
+      case 'p': case 'P': if (!busy) doRandomize(false); break;
+      case 's': case 'S': toggleSeam(); break;
+      case 'v': case 'V': if (!busy) verifyLoop(); break;
+      case 'g': case 'G': if (!busy) exportGif(); break;
+      case 'w': case 'W': if (!busy) exportWebm(); break;
+      case 'Escape': hideOverlay(); break;
+      case 'ArrowRight': playing = false; tNow = (Math.round(tNow * N) + 1) % N / N; markDirty(); syncPlayBtn(); break;
+      case 'ArrowLeft': playing = false; tNow = ((Math.round(tNow * N) - 1 + N) % N) / N; markDirty(); syncPlayBtn(); break;
+    }
+  });
+
+  window.addEventListener('resize', layout);
+}
+function togglePlay() { playing = !playing; if (playing) seamMode = 0; syncPlayBtn(); }
+function syncPlayBtn() {
+  $('#btnPlay').innerHTML = playing ? '&#10074;&#10074;' : '&#9654;';
+  $('#btnPlay').classList.toggle('on', playing);
+  $('#btnSeam').classList.toggle('on', !!seamMode);
+}
+function toggleSeam() {
+  seamMode = seamMode ? 0 : 1;
+  if (seamMode) { playing = false; seamTick = 0; }
+  else { $('#seamBadge').className = ''; }
+  syncPlayBtn(); markDirty();
+}
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+(function boot() {
+  if (!GL_OK) {
+    document.body.innerHTML =
+      '<div style="display:grid;place-items:center;height:100vh;text-align:center;padding:40px;font:14px/1.7 system-ui;color:#e6e8f5">' +
+      '<div><h2 style="margin-bottom:12px">WebGL2 is not available here</h2>' +
+      '<p style="color:#8d92b5;max-width:520px">Electric Loom renders every frame on the GPU and needs WebGL2. ' +
+      'Try Chrome, Edge or Firefox, and check that hardware acceleration is on in the browser settings.</p></div></div>';
+    return;
+  }
+  wireSections();
+  buildGallery();
+  buildSizePresets();
+  wire();
+  buildStops();
+  buildPalPresets();
+  uploadPalette();
+  drawPalBar();
+  buildParams();
+  buildPresetList();
+  $('#genTag').textContent = GEN_BY_ID[S.gen].name;
+
+  if (!readUrl()) {
+    // a good-looking first impression rather than a blank default
+    S.pal.stops = PAL_PRESETS[0].s.map((c, i) => ({ p: i / PAL_PRESETS[0].s.length, c }));
+    S.pal.preset = 0;
+    S.frame.zoom = 1.15;
+    refreshAllUI();
+  }
+  probeCodecs();
+  syncPlayBtn();
+  layout();
+  updateEstimate();
+  setTimeout(renderThumbs, 60);
+  requestAnimationFrame(tick);
+
+  // tell the user which encoding path they got, once, quietly
+  setTimeout(() => {
+    const w = getWorkers();
+    if (!w) {
+      $('#progTxt').textContent = '';
+      const note = el('div', 'warnbox');
+      note.innerHTML = 'GIF encoding is running on the main thread because background workers are blocked ' +
+        'on file:// pages. It still works, just slower. Run <b>serve.cmd</b> in this folder and open ' +
+        '<b>http://localhost:8777</b> to get all cores.';
+      $('#outList').parentNode.insertBefore(note, $('#outList'));
+    }
+  }, 400);
+})();
+</script>
+</body>
+</html>
