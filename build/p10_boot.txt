@@ -21,6 +21,63 @@ function buildPresetList() {
 }
 
 /* =====================================================================
+   TIP LINK
+   ---------------------------------------------------------------------
+   Configured at build time as three meta tags, so it costs nothing: a
+   plain anchor needs no third-party script and no CSP allowance, unlike
+   an ad unit. Absent from the default build entirely.
+   ===================================================================== */
+const TIP = { url: "", label: "", note: "" };
+const TIP_KEY = 'eloom.tip.hidden';
+const TIP_QUIET_DAYS = 60;
+let tipShownThisSession = false;
+
+function readTipConfig() {
+  const meta = n => { const m = document.querySelector('meta[name="el-tip-' + n + '"]'); return m ? m.content.trim() : ''; };
+  const url = meta('url');
+  /* An operator typo must not become a javascript: link in everyone's
+     browser, so only real web URLs are accepted. */
+  if (!/^https?:\/\//i.test(url)) return;
+  TIP.url = url;
+  TIP.label = meta('label') || 'Tip the developer';
+  TIP.note = meta('note');
+  const btn = $('#tipBtn');
+  btn.href = TIP.url;
+  btn.textContent = TIP.label;
+  btn.title = TIP.note || TIP.label;
+  btn.style.display = '';
+}
+function tipIsMuted() {
+  try {
+    const t = parseInt(localStorage.getItem(TIP_KEY) || '0', 10);
+    return t > 0 && (Date.now() - t) < TIP_QUIET_DAYS * 86400000;
+  } catch (e) { return false; }
+}
+/* Shown once per session, after an export has actually landed, and only
+   until it is waved away. A creative tool that nags is a worse tool. */
+function maybeShowTip() {
+  if (!TIP.url || tipShownThisSession || tipIsMuted()) return;
+  tipShownThisSession = true;
+  const card = el('div', 'tipcard');
+  const h = el('h4', '', 'Rendered on your machine, free');
+  const p = el('p', '', TIP.note ||
+    'Nothing you make here is uploaded and nothing is watermarked. If it saved you some time, you can throw the developer a few quid.');
+  const row = el('div', 'row');
+  const go = document.createElement('a');
+  go.className = 'btn sm tip'; go.href = TIP.url; go.target = '_blank';
+  go.rel = 'noopener noreferrer'; go.textContent = TIP.label;
+  go.style.flex = '1';
+  const no = el('button', 'btn sm', 'Not now');
+  no.addEventListener('click', () => {
+    try { localStorage.setItem(TIP_KEY, String(Date.now())); } catch (e) {}
+    card.remove();
+  });
+  row.appendChild(go); row.appendChild(no);
+  card.appendChild(h); card.appendChild(p); card.appendChild(row);
+  $('#outList').appendChild(card);
+}
+
+/* =====================================================================
    HELP
    ===================================================================== */
 let HAS_SPONSOR = false;
@@ -270,6 +327,8 @@ function toggleSeam() {
   const adRail = $('#adRail');
   if (adRail && adRail.children.length) { HAS_SPONSOR = true; $('#adSec').style.display = ''; }
   else if (adRail) { const s = $('#adSec'); if (s) s.remove(); }
+
+  readTipConfig();
 
   probeCodecs();
   syncPlayBtn();

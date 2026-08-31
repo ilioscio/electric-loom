@@ -141,6 +141,13 @@ label.lbl{font-size:11px;color:var(--dim);flex:0 0 auto}
    at boot when nothing was injected into it, so a plain self-hosted copy
    still makes no network requests whatsoever. */
 .adbox{border-bottom:1px solid var(--line);padding:10px 12px 12px}
+.btn.tip{border-color:#6b4a1e;background:linear-gradient(180deg,#3a2a10,#2a1d0a);color:var(--warn)}
+.btn.tip:hover{border-color:var(--warn);box-shadow:0 0 14px -4px var(--warn);background:linear-gradient(180deg,#4a360f,#33240b)}
+.tipcard{border:1px solid #5c4a24;background:linear-gradient(180deg,#241b0d,#1a1409);border-radius:8px;
+  padding:10px 11px;margin-top:8px}
+.tipcard h4{font-size:11.5px;color:var(--warn);letter-spacing:.03em;margin-bottom:4px;font-weight:600}
+.tipcard p{font-size:10.5px;line-height:1.55;color:var(--dim);margin-bottom:8px}
+.tipcard .row{gap:6px;margin:0}
 .adlabel{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);margin-bottom:6px}
 #adRail{min-height:0;overflow:hidden;text-align:center}
 #adRail img,#adRail iframe{max-width:100%}
@@ -286,6 +293,7 @@ hr.sp{border:none;border-top:1px solid var(--line);margin:11px 0}
   .scroll{overflow:visible}
 }
 </style>
+<!--EL_CONFIG-->
 <!--EL_HEAD-->
 </head>
 <body>

@@ -6,6 +6,7 @@
   <button class="btn sm" id="btnRandom" title="Randomize everything (R)">Randomize</button>
   <button class="btn sm" id="btnRandParams" title="Randomize parameters only, keep generator + palette">Reroll params</button>
   <button class="btn sm" id="btnCopyLink" title="Copy a link that reproduces this exact look">Copy link</button>
+  <a class="btn sm tip" id="tipBtn" style="display:none" target="_blank" rel="noopener noreferrer"></a>
   <button class="btn sm" id="btnHelp">?</button>
 </header>
 

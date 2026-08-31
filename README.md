@@ -304,6 +304,30 @@ Any host a snippet talks to must also be named in
 third-party code to this page should be two deliberate decisions, not one
 forgotten one.
 
+Step-by-step runbooks for switching on tips and ads, and the list of things
+that will go wrong, are in [`AGENTS.md`](AGENTS.md).
+
+### A tip link
+
+Separate from the ad plumbing, and much cheaper: it is a plain anchor, so it
+needs no third-party script, no CSP allowance and no consent banner.
+
+```nix
+services.electric-loom.tip = {
+  url   = "https://ko-fi.com/yourname";
+  label = "Buy me a coffee";               # optional
+  note  = "Built solo, given away free.";  # optional
+};
+```
+
+That puts a button in the header, and a dismissible card in the export panel
+that appears **after a render finishes** — when the visitor has just got
+something useful for nothing. It shows once per session and stays dismissed for
+sixty days. Empty by default, like everything else here.
+
+The URL must be `http://` or `https://`: the build refuses anything else and
+the page checks again at runtime, so a typo cannot become a `javascript:` link.
+
 ### If you monetise it
 
 Three things worth knowing before wiring up a network:

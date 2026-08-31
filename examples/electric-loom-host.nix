@@ -18,6 +18,16 @@
     defaults.email = "you@example.com";
   };
 
+  # ------------------------------------------------------------------ tips --
+  # A plain link: no third-party script, no CSP change, no consent banner.
+  # Shows in the header, and on a dismissible card after a render finishes.
+  #
+  # services.electric-loom.tip = {
+  #   url   = "https://ko-fi.com/yourname";
+  #   label = "Buy me a coffee";
+  #   note  = "Built solo, given away free. A coffee keeps it coming.";
+  # };
+
   # --------------------------------------------------------------- with ads --
   # Everything below is what you would ADD to the block above. Nothing here is
   # enabled by default, and the network's hosts have to be named twice: once to

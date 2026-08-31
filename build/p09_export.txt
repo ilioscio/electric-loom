@@ -47,6 +47,7 @@ function addOutput(kind, name, blob) {
   item.appendChild(dl);
   $('#outList').prepend(item);
   a.click();
+  maybeShowTip();   // the moment they just got something out of it
 }
 
 /* ------------------------------------------------------------------ GIF */

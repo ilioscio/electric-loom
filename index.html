@@ -141,6 +141,13 @@ label.lbl{font-size:11px;color:var(--dim);flex:0 0 auto}
    at boot when nothing was injected into it, so a plain self-hosted copy
    still makes no network requests whatsoever. */
 .adbox{border-bottom:1px solid var(--line);padding:10px 12px 12px}
+.btn.tip{border-color:#6b4a1e;background:linear-gradient(180deg,#3a2a10,#2a1d0a);color:var(--warn)}
+.btn.tip:hover{border-color:var(--warn);box-shadow:0 0 14px -4px var(--warn);background:linear-gradient(180deg,#4a360f,#33240b)}
+.tipcard{border:1px solid #5c4a24;background:linear-gradient(180deg,#241b0d,#1a1409);border-radius:8px;
+  padding:10px 11px;margin-top:8px}
+.tipcard h4{font-size:11.5px;color:var(--warn);letter-spacing:.03em;margin-bottom:4px;font-weight:600}
+.tipcard p{font-size:10.5px;line-height:1.55;color:var(--dim);margin-bottom:8px}
+.tipcard .row{gap:6px;margin:0}
 .adlabel{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);margin-bottom:6px}
 #adRail{min-height:0;overflow:hidden;text-align:center}
 #adRail img,#adRail iframe{max-width:100%}
@@ -296,6 +303,7 @@ hr.sp{border:none;border-top:1px solid var(--line);margin:11px 0}
   <button class="btn sm" id="btnRandom" title="Randomize everything (R)">Randomize</button>
   <button class="btn sm" id="btnRandParams" title="Randomize parameters only, keep generator + palette">Reroll params</button>
   <button class="btn sm" id="btnCopyLink" title="Copy a link that reproduces this exact look">Copy link</button>
+  <a class="btn sm tip" id="tipBtn" style="display:none" target="_blank" rel="noopener noreferrer"></a>
   <button class="btn sm" id="btnHelp">?</button>
 </header>
 
@@ -3305,6 +3313,7 @@ function addOutput(kind, name, blob) {
   item.appendChild(dl);
   $('#outList').prepend(item);
   a.click();
+  maybeShowTip();   // the moment they just got something out of it
 }
 
 /* ------------------------------------------------------------------ GIF */
@@ -3877,6 +3886,63 @@ function buildPresetList() {
 }
 
 /* =====================================================================
+   TIP LINK
+   ---------------------------------------------------------------------
+   Configured at build time as three meta tags, so it costs nothing: a
+   plain anchor needs no third-party script and no CSP allowance, unlike
+   an ad unit. Absent from the default build entirely.
+   ===================================================================== */
+const TIP = { url: "", label: "", note: "" };
+const TIP_KEY = 'eloom.tip.hidden';
+const TIP_QUIET_DAYS = 60;
+let tipShownThisSession = false;
+
+function readTipConfig() {
+  const meta = n => { const m = document.querySelector('meta[name="el-tip-' + n + '"]'); return m ? m.content.trim() : ''; };
+  const url = meta('url');
+  /* An operator typo must not become a javascript: link in everyone's
+     browser, so only real web URLs are accepted. */
+  if (!/^https?:\/\//i.test(url)) return;
+  TIP.url = url;
+  TIP.label = meta('label') || 'Tip the developer';
+  TIP.note = meta('note');
+  const btn = $('#tipBtn');
+  btn.href = TIP.url;
+  btn.textContent = TIP.label;
+  btn.title = TIP.note || TIP.label;
+  btn.style.display = '';
+}
+function tipIsMuted() {
+  try {
+    const t = parseInt(localStorage.getItem(TIP_KEY) || '0', 10);
+    return t > 0 && (Date.now() - t) < TIP_QUIET_DAYS * 86400000;
+  } catch (e) { return false; }
+}
+/* Shown once per session, after an export has actually landed, and only
+   until it is waved away. A creative tool that nags is a worse tool. */
+function maybeShowTip() {
+  if (!TIP.url || tipShownThisSession || tipIsMuted()) return;
+  tipShownThisSession = true;
+  const card = el('div', 'tipcard');
+  const h = el('h4', '', 'Rendered on your machine, free');
+  const p = el('p', '', TIP.note ||
+    'Nothing you make here is uploaded and nothing is watermarked. If it saved you some time, you can throw the developer a few quid.');
+  const row = el('div', 'row');
+  const go = document.createElement('a');
+  go.className = 'btn sm tip'; go.href = TIP.url; go.target = '_blank';
+  go.rel = 'noopener noreferrer'; go.textContent = TIP.label;
+  go.style.flex = '1';
+  const no = el('button', 'btn sm', 'Not now');
+  no.addEventListener('click', () => {
+    try { localStorage.setItem(TIP_KEY, String(Date.now())); } catch (e) {}
+    card.remove();
+  });
+  row.appendChild(go); row.appendChild(no);
+  card.appendChild(h); card.appendChild(p); card.appendChild(row);
+  $('#outList').appendChild(card);
+}
+
+/* =====================================================================
    HELP
    ===================================================================== */
 let HAS_SPONSOR = false;
@@ -4126,6 +4192,8 @@ function toggleSeam() {
   const adRail = $('#adRail');
   if (adRail && adRail.children.length) { HAS_SPONSOR = true; $('#adSec').style.display = ''; }
   else if (adRail) { const s = $('#adSec'); if (s) s.remove(); }
+
+  readTipConfig();
 
   probeCodecs();
   syncPlayBtn();

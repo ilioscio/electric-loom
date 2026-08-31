@@ -1,0 +1,191 @@
+# Notes for whoever works on this next
+
+Electric Loom renders seamlessly looping animated backgrounds and encodes them
+to GIF, WebM or PNG **entirely in the browser**. The server hands over one
+static file and does nothing else. Read `README.md` for what it does; this file
+is about how not to break it, and how to switch on the money.
+
+---
+
+## Rules that are not style preferences
+
+**Never edit `index.html` by hand.** It is generated. Edit the numbered parts
+in `build/` and regenerate:
+
+```bash
+OUT=. SINGLE_FILE=1 ./build.sh     # rewrites the committed index.html
+node build/test_gif.js             # GIF encoder round-trip suite
+```
+
+`build.sh` is the single source of truth. The Nix derivation calls it and
+`build.cmd` either delegates to it or reproduces it byte for byte.
+
+**The loop rule.** Time enters a pattern only as `TA = 2*PI*t`, and every
+coefficient multiplying it must be an integer. UI controls for those use `PI_`
+(integer-stepped), not `P`. If you add a pattern or a control that varies with
+time and you use `P`, you have quietly broken the loop for everyone.
+
+**Three traps that already bit, documented so they do not bite again:**
+
+- `mod()` is unreliable on real drivers. `mod(6.0, 6.0)` returns `6.0` where
+  the reciprocal rounds down. Use `imod()` from the shader prelude for anything
+  a tile index depends on.
+- Wrap `t` *before* adding an LFO phase. `wrap1(1 + phase)` and
+  `wrap1(0 + phase)` differ by one ULP, and `Math.round` turns that into a
+  whole step on an integer control.
+- Grain must be indexed modulo the frame count, and rotations wrapped to one
+  turn, or the mantissa drains as spin counts climb.
+
+**The default build makes zero network requests.** That is a property worth
+keeping, and it is load-bearing for the in-app help text, which claims it. If
+you add anything that phones home, the claim in `p10_boot.txt` must change too.
+
+---
+
+## Verifying a change
+
+Beyond `node build/test_gif.js`, the useful checks run in a browser. Serve the
+built site with production headers and drive it from the console:
+
+```bash
+OUT=dist ./build.sh
+python3 build/headertest.py 8778 dist     # sends the exact headers the module sets
+```
+
+`build/headertest.py` mirrors `nix/module.nix`. **If you change the CSP in the
+module, change it there too** — it is the only way to test the policy without a
+NixOS box, and it has already caught one boot-killing bug.
+
+The loop guarantee itself is checked in-page. Roughly:
+
+```js
+S.gen = 'warp';
+render(0, 200, 112, 2); const a = readFrame(200, 112);
+render(1, 200, 112, 2); const b = readFrame(200, 112);
+// worst |a-b| should be <= 2 across every generator
+```
+
+And for modulators, `modSeamError(m)` must stay under `1e-4`. Note that the
+in-app **Verify loop** reports two numbers on purpose: the strict `t=0` vs
+`t=1` pixel probe over-reports at extreme settings (float32 phase error in the
+shader reads as a sub-pixel shift), so the headline is seam continuity against
+an ordinary frame step. Do not "fix" a large probe number by wrapping `t` in
+`render()` — that would make the test vacuous rather than the loop better.
+
+---
+
+## Runbook: turn on the tip link
+
+The cheapest money. It is a plain `<a href>`: no third-party script, no CSP
+change, no consent banner, nothing to review.
+
+1. Get a link — Ko-fi, Buy Me a Coffee, GitHub Sponsors, Liberapay, a Stripe
+   payment link. Anything `https://`.
+
+2. Set it in the host config:
+
+```nix
+services.electric-loom.tip = {
+  url   = "https://ko-fi.com/yourname";
+  label = "Buy me a coffee";              # optional
+  note  = "Built solo, given away free."; # optional, shown on the card
+};
+```
+
+3. Rebuild and check: a button appears in the header, and a dismissible card
+   appears in the export panel **after a render finishes** — the moment the
+   visitor has just got something for nothing. It shows once per session and
+   stays dismissed for 60 days.
+
+To test locally without Nix:
+
+```bash
+OUT=dist-tip TIP_URL="https://ko-fi.com/you" TIP_LABEL="Buy me a coffee" ./build.sh
+```
+
+Guardrails already in place: the URL must be `http://` or `https://` (the build
+exits non-zero otherwise, and the page re-checks at runtime so a typo cannot
+become a `javascript:` link), and the label and note are HTML-attribute escaped.
+
+---
+
+## Runbook: turn on ads
+
+Harder, and read the "If you monetise it" section of `README.md` before
+starting — a single-page tool is a poor shape for display advertising and this
+audience blocks it heavily.
+
+1. **Add content first.** Ad networks reject single-app-screen sites as "low
+   value content". A gallery of example loops, OBS setup notes and real docs
+   help with the review and with search traffic. Do this before applying.
+
+2. **Get a consent management platform** if any EU or UK traffic is expected.
+   Personalised ads there require a certified CMP, and it must load *before*
+   the ad script — that is why `headSnippet` is a single ordered block.
+
+3. **Wire it in.** Two places, deliberately:
+
+```nix
+services.electric-loom = {
+  referrerPolicy = "strict-origin-when-cross-origin";   # most networks want this
+
+  ads.headSnippet = ''
+    <script async src="https://cmp.NETWORK.example/cmp.js"></script>
+    <script async crossorigin="anonymous" src="https://ads.NETWORK.example/loader.js?id=ID"></script>
+  '';
+  ads.railSnippet = ''
+    <ins class="..." data-ad-client="ID" data-ad-slot="SLOT"></ins>
+    <script>(adsQueue = window.adsQueue || []).push({});</script>
+  '';
+
+  contentSecurityPolicy = {
+    extraScriptSrc  = [ "https://ads.NETWORK.example" "https://cmp.NETWORK.example" ];
+    extraFrameSrc   = [ "https://ads.NETWORK.example" ];   # display units are iframes
+    extraImgSrc     = [ "https:" "data:" ];                # creatives, tracking pixels
+    extraConnectSrc = [ "https://ads.NETWORK.example" ];
+  };
+};
+```
+
+**If you forget the CSP entries the ad silently does not load.** That is the
+designed behaviour, not a bug. The browser console says exactly which directive
+blocked it; check there first.
+
+4. **Verify**, with `build/headertest.py` and the browser console:
+   - the app still boots — `document.querySelectorAll('#vidCodec option').length > 0`
+     is a good one-line proxy, because boot aborting leaves every control dead
+     while the page still *looks* fine;
+   - `#adSec` is visible and carries its "Sponsored" label;
+   - no CSP violations in the console;
+   - a GIF export still completes.
+
+5. **Do not auto-refresh the unit on export completion.** It is tempting — it
+   is a real attention beat — but refreshing outside a network's supported
+   mechanism breaks most programme policies.
+
+### Things that will go wrong
+
+- **Injected markup with `class="sec"`** used to kill boot, because
+  `wireSections()` dereferenced a missing `.head`. It is guarded now, but keep
+  injected markup dumb: a container and the network's own tags.
+- **Ad scripts are slow and occasionally throw.** They load `async` and sit
+  outside the render loop, so they cannot stall a render. Keep it that way.
+- **The rail is `#adRail`.** It deletes itself at boot when empty. If you add a
+  second slot, follow the same pattern — absent by default, never a hole in the
+  layout.
+
+---
+
+## Known-untested
+
+There is **no `nix` and no `nginx`** on the machine this was built on.
+`flake.nix`, `nix/package.nix` and `nix/module.nix` were checked for balanced
+brackets and terminated strings by a purpose-written tokeniser, **not
+evaluated**. Expect to shake out semantics on the first `nixos-rebuild`. The
+likeliest snag is `gzipStatic`, which needs `http_gzip_static_module`; set it
+`false` if nginx rejects the config.
+
+The CSP, the cache headers, the ad injection and the tip link **were** all
+exercised against a real browser.
+
+There is no `LICENSE`. Deliberate, for now.

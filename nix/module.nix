@@ -51,6 +51,9 @@ let
     headSnippet = cfg.ads.headSnippet;
     adSnippet = cfg.ads.railSnippet;
     bodySnippet = cfg.ads.bodySnippet;
+    tipUrl = cfg.tip.url;
+    tipLabel = cfg.tip.label;
+    tipNote = cfg.tip.note;
   };
 in
 {
@@ -132,6 +135,39 @@ in
       '';
     };
 
+    tip = {
+      url = mkOption {
+        type = types.str;
+        default = "";
+        example = "https://ko-fi.com/yourname";
+        description = ''
+          Link for the tip button. Must be http:// or https://; the build
+          rejects anything else and the page ignores it a second time at
+          runtime, so a typo cannot turn into a javascript: link.
+
+          Empty, the default, means no tip button anywhere.
+
+          Unlike the ad snippets this needs no Content-Security-Policy
+          change and loads no third-party code: it is a plain anchor.
+        '';
+      };
+      label = mkOption {
+        type = types.str;
+        default = "";
+        example = "Buy me a coffee";
+        description = ''Text on the button. Defaults to "Tip the developer".'';
+      };
+      note = mkOption {
+        type = types.str;
+        default = "";
+        example = "Built in the open. Tips keep the lights on.";
+        description = ''
+          One line shown on the card that appears after a render finishes.
+          Leave empty for the stock wording.
+        '';
+      };
+    };
+
     ads = {
       headSnippet = mkOption {
         type = types.lines;
@@ -203,6 +239,12 @@ in
   };
 
   config = mkIf cfg.enable {
+    assertions = [{
+      assertion = cfg.tip.url == "" || lib.hasPrefix "http://" cfg.tip.url
+                                    || lib.hasPrefix "https://" cfg.tip.url;
+      message = "services.electric-loom.tip.url must start with http:// or https://";
+    }];
+
     services.nginx = {
       enable = true;
       recommendedGzipSettings = mkDefault true;

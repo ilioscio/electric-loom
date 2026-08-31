@@ -10,6 +10,9 @@
 , headSnippet ? ""   # HTML injected just before </head>  (ad loader, CMP, analytics)
 , adSnippet ? ""     # HTML injected into the sponsored rail
 , bodySnippet ? ""   # HTML injected at the end of <body>
+, tipUrl ? ""        # http/https link for the tip button; "" disables it
+, tipLabel ? ""      # text on the button, defaults to "Tip the developer"
+, tipNote ? ""       # one line shown on the card after an export finishes
 , runChecks ? true   # run the GIF encoder round-trip suite against the built file
 }:
 
@@ -43,6 +46,9 @@ stdenvNoCC.mkDerivation {
       ''export AD_SNIPPET=${writeText "electric-loom-ad.html" adSnippet}''}
     ${lib.optionalString (bodySnippet != "")
       ''export BODY_SNIPPET=${writeText "electric-loom-body.html" bodySnippet}''}
+    export TIP_URL=${lib.escapeShellArg tipUrl}
+    export TIP_LABEL=${lib.escapeShellArg tipLabel}
+    export TIP_NOTE=${lib.escapeShellArg tipNote}
 
     sh ./build.sh
 

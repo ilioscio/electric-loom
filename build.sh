@@ -10,6 +10,9 @@
 #   HEAD_SNIPPET=file        HTML injected just before </head>
 #   AD_SNIPPET=file          HTML injected into the sponsored rail
 #   BODY_SNIPPET=file        HTML injected at the end of <body>
+#   TIP_URL=https://...      show a tip link (http/https only; omit for none)
+#   TIP_LABEL="Buy me a coffee"   text on the link
+#   TIP_NOTE="..."           one line shown on the post-export card
 #   PRECOMPRESS=1            also emit .gz / .br next to each file
 #   SINGLE_FILE=1            only write index.html, no extras, no compression
 #                            (this is how the committed index.html is made)
@@ -59,6 +62,31 @@ inject() {
 inject '<!--EL_HEAD-->'     "${HEAD_SNIPPET:-}"
 inject '<!--EL_AD_RAIL-->'  "${AD_SNIPPET:-}"
 inject '<!--EL_BODY_END-->' "${BODY_SNIPPET:-}"
+
+# ---- 2b. tip link -----------------------------------------------------------
+# Carried as meta tags rather than as a snippet: it is a plain anchor, so it
+# needs no third-party script and no CSP allowance. Attribute-escaped, and the
+# scheme is checked here as well as at runtime, because a typo that became a
+# javascript: URL would ship to every visitor.
+htmlesc() {
+    printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'
+}
+if [ -n "${TIP_URL:-}" ]; then
+    case "$TIP_URL" in
+        http://*|https://*) ;;
+        *) echo "build.sh: TIP_URL must start with http:// or https:// (got: $TIP_URL)" >&2; exit 1 ;;
+    esac
+    tipfile="$(mktemp)"
+    {
+        printf '<meta name="el-tip-url" content="%s">\n'   "$(htmlesc "$TIP_URL")"
+        printf '<meta name="el-tip-label" content="%s">\n' "$(htmlesc "${TIP_LABEL:-Tip the developer}")"
+        printf '<meta name="el-tip-note" content="%s">\n'  "$(htmlesc "${TIP_NOTE:-}")"
+    } > "$tipfile"
+    inject '<!--EL_CONFIG-->' "$tipfile"
+    rm -f "$tipfile"
+else
+    inject '<!--EL_CONFIG-->' ""
+fi
 
 # ---- 3. absolute URLs for the social cards ---------------------------------
 # Unset leaves them relative, which every modern scraper resolves anyway.
