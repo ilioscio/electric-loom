@@ -231,6 +231,13 @@
       </div>
     </div>
 
+    <div class="adbox" id="adSec" style="display:none">
+      <div class="adlabel">Sponsored</div>
+      <div id="adRail">
+<!--EL_AD_RAIL-->
+      </div>
+    </div>
+
     <div class="sec closed" data-sec="obs">
       <div class="head">OBS notes<span class="chev">&#9662;</span></div>
       <div class="body">
@@ -254,5 +261,6 @@
 </main>
 </div>
 <div id="toast"></div>
+<!--EL_BODY_END-->
 <script>
 "use strict";

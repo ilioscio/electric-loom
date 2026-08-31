@@ -1,0 +1,6 @@
+# The build is a POSIX shell script and the deploy target is Linux, so keep
+# everything LF regardless of who checks it out. Batch files need CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.jpg binary
+*.gif binary

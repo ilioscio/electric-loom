@@ -3,7 +3,10 @@
    then decodes the LZW back and compares against the quantized indices. */
 const fs = require('fs');
 const path = require('path');
-const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+// default to the committed single file; the Nix build points this at the
+// freshly built site so the check exercises what actually ships
+const target = process.argv[2] || path.join(__dirname, '..', 'index.html');
+const html = fs.readFileSync(target, 'utf8');
 
 /* ---- pull ALGO_SRC ---- */
 const a0 = html.indexOf('const ALGO_SRC = String.raw`');

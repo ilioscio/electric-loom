@@ -339,7 +339,11 @@ function buildPalPresets() {
 /* ---------------- sections ---------------- */
 function wireSections() {
   $$('.sec').forEach(sec => {
-    sec.querySelector('.head').addEventListener('click', () => {
+    const head = sec.querySelector('.head');
+    /* Injected markup could carry this class; one missing header used to
+       throw here and abort boot, leaving every control on the page dead. */
+    if (!head) return;
+    head.addEventListener('click', () => {
       sec.classList.toggle('closed');
       try { localStorage.setItem('eloom.sec.' + sec.dataset.sec, sec.classList.contains('closed') ? '1' : '0'); } catch (e) {}
     });

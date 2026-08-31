@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Electric Loom &mdash; perfect-loop GIF forge</title>
+<meta name="description" content="Make perfectly looping trippy GIF, WebM and PNG backgrounds for OBS. 18 GPU patterns, animatable controls, exports entirely in your browser.">
+<meta name="theme-color" content="#07070c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237af0ff'/%3E%3Cstop offset='.5' stop-color='%23b47cff'/%3E%3Cstop offset='1' stop-color='%23ff5de0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='7' fill='%230a0b14'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='url(%23g)' stroke-width='4'/%3E%3Ccircle cx='16' cy='7' r='3' fill='%23f7ffb0'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Electric Loom">
+<meta property="og:description" content="Make perfectly looping trippy GIF, WebM and PNG backgrounds for OBS. 18 GPU patterns, animatable controls, exports entirely in your browser.">
+<meta property="og:image" content="__SITE_URL__/patterns.jpg">
+<meta property="og:url" content="__SITE_URL__/">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 :root{
   --bg:#07070c; --bg2:#0c0d16; --panel:#11121d; --panel2:#171930;
@@ -127,6 +136,14 @@ label.lbl{font-size:11px;color:var(--dim);flex:0 0 auto}
 .modrow .x{color:var(--dim2);font-size:14px;line-height:1;padding:0 2px;flex:0 0 auto}
 .modrow .x:hover{color:var(--bad)}
 .modrow.off .nm,.modrow.off .sh{opacity:.4}
+
+/* Operator ad slot. Empty in the default build - the rail deletes itself
+   at boot when nothing was injected into it, so a plain self-hosted copy
+   still makes no network requests whatsoever. */
+.adbox{border-bottom:1px solid var(--line);padding:10px 12px 12px}
+.adlabel{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);margin-bottom:6px}
+#adRail{min-height:0;overflow:hidden;text-align:center}
+#adRail img,#adRail iframe{max-width:100%}
 
 input[type=number],input[type=text],select{
   background:#0a0b14;border:1px solid var(--line);border-radius:6px;padding:5px 7px;
@@ -269,5 +286,6 @@ hr.sp{border:none;border-top:1px solid var(--line);margin:11px 0}
   .scroll{overflow:visible}
 }
 </style>
+<!--EL_HEAD-->
 </head>
 <body>

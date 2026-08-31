@@ -1,2 +1,7 @@
 build/roundtrip.gif
 build/_check.js
+dist/
+dist-ads/
+dist2/
+result
+result-*

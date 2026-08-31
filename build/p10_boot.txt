@@ -23,6 +23,7 @@ function buildPresetList() {
 /* =====================================================================
    HELP
    ===================================================================== */
+let HAS_SPONSOR = false;
 function showHelp() {
   $('#ovBig').textContent = 'Electric Loom';
   $('#ovSmall').innerHTML =
@@ -38,8 +39,12 @@ function showHelp() {
     '<b>esc</b> close this\n\n' +
     'Double-click any slider readout to reset that one control.\n' +
     'The link in the address bar carries the whole look; Copy link shares it.\n\n' +
-    'Nothing here talks to a network. Open index.html straight off disk, or run\n' +
-    'serve.cmd for the multi-core GIF encoder.';
+    (HAS_SPONSOR
+      ? 'This copy carries a sponsor slot, so the page does load that one third\n' +
+        'party. The tool itself is unchanged: every frame is rendered and encoded\n' +
+        'on your own machine, and nothing you make is uploaded anywhere.'
+      : 'Nothing here talks to a network. Every frame is rendered and encoded on\n' +
+        'your own machine, and nothing you make is uploaded anywhere.');
   $('#ovSmall').style.whiteSpace = 'pre-wrap';
   $('#overlayMsg').classList.add('show');
 }
@@ -261,6 +266,11 @@ function toggleSeam() {
     S.frame.zoom = 1.15;
     refreshAllUI();
   }
+  /* the rail is only shown if an operator actually injected a unit */
+  const adRail = $('#adRail');
+  if (adRail && adRail.children.length) { HAS_SPONSOR = true; $('#adSec').style.display = ''; }
+  else if (adRail) { const s = $('#adSec'); if (s) s.remove(); }
+
   probeCodecs();
   syncPlayBtn();
   layout();

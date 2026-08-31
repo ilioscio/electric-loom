@@ -192,6 +192,148 @@ as JSON.
 
 ---
 
+## Hosting it
+
+Everything runs in the visitor's browser. The server's entire job is to hand
+over one static file: **180 kB raw, 57 kB gzipped, 49 kB brotli**. There is no
+API, no upload, no render queue, no database. A visitor rendering a 450-frame
+1080p GIF costs the server exactly nothing beyond that first response, because
+the WebGL, the quantizer, the LZW compressor and the muxer all run on their
+machine.
+
+That makes the bandwidth arithmetic pleasant: at ~50 kB a visit, **1 TB of
+monthly transfer is about 20 million page views**. 10,000 visits is 500 MB. The
+constraint on this service will never be hosting cost.
+
+### As a flake
+
+```nix
+inputs.electric-loom.url = "github:YOURNAME/electric-loom";
+inputs.electric-loom.inputs.nixpkgs.follows = "nixpkgs";
+```
+
+```nix
+{
+  imports = [ electric-loom.nixosModules.default ];
+
+  services.electric-loom = {
+    enable = true;
+    domain = "loom.example.com";
+    openFirewall = true;
+  };
+
+  security.acme.acceptTerms = true;
+  security.acme.defaults.email = "you@example.com";
+}
+```
+
+That is the whole deployment. The module builds the site, sets up the nginx
+virtual host with ACME and HTTPS, sends a locked-down Content-Security-Policy,
+serves the pre-compressed files, and marks `index.html` `no-cache` (it has no
+content hash in its name, and revalidating 50 kB is free) while letting the
+images sit in cache for a week.
+
+Worked examples are in [`examples/`](examples/). Other outputs:
+
+| | |
+|---|---|
+| `nix build` | the site as a directory of static files |
+| `nix run` | serve it locally on :8777 |
+| `nix flake check` | build it and run the GIF encoder round-trip suite against the built file |
+| `nix develop` | node, python, gzip, brotli |
+| `overlays.default` | `pkgs.electric-loom` |
+
+Useful options: `siteUrl`, `enableACME`, `forceSSL`, `gzipStatic`,
+`brotliStatic`, `referrerPolicy`, `extraLocationConfig`, `virtualHostConfig`,
+and the `ads.*` and `contentSecurityPolicy.*` trees below.
+
+`gzipStatic` defaults to on and needs nginx built with
+`http_gzip_static_module` (the nixpkgs default is). If your nginx lacks it,
+nginx rejects the config at rebuild time — set `gzipStatic = false`.
+`brotliStatic` is off by default because it needs
+`services.nginx.additionalModules = [ pkgs.nginxModules.brotli ];`.
+
+### The build without Nix
+
+`build.sh` is the single source of truth — the Nix derivation calls it, so
+what the flake produces is what you get locally.
+
+```bash
+OUT=dist ./build.sh                  # full site into dist/
+OUT=. SINGLE_FILE=1 ./build.sh       # regenerate the committed index.html
+```
+
+### Content-Security-Policy
+
+The default policy allows exactly what the application needs and nothing else:
+
+```
+default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;
+worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;
+media-src 'self' blob:; connect-src 'self' blob: data:; frame-src 'none';
+font-src 'self' data:; base-uri 'none'; form-action 'none';
+frame-ancestors 'none'; object-src 'none'
+```
+
+`'unsafe-inline'` is unavoidable while the application is one inline
+`<script>`; `'unsafe-eval'` covers the encoder's `new Function` fallback for
+browsers where workers are unavailable; `blob:` covers the worker pool. This
+was verified by serving the built file with that exact header and checking that
+the worker pool spawns, the fallback constructs, and GIF, WebM and PNG exports
+all complete.
+
+### Third-party code
+
+There is one supported way in, and it is declarative:
+
+```nix
+services.electric-loom.ads = {
+  headSnippet = "...";   # injected before </head>: ad loader, CMP, analytics
+  railSnippet = "...";   # injected into the sponsored rail in the right column
+  bodySnippet = "...";   # injected at the end of <body>
+};
+```
+
+With all three empty — the default — the built page makes **no network requests
+at all**. The sponsored rail deletes itself at boot when nothing was injected,
+and carries a "Sponsored" label when something was.
+
+Any host a snippet talks to must also be named in
+`contentSecurityPolicy.extraScriptSrc` / `extraImgSrc` / `extraFrameSrc` /
+`extraConnectSrc`, or the browser blocks it. That is on purpose: adding
+third-party code to this page should be two deliberate decisions, not one
+forgotten one.
+
+### If you monetise it
+
+Three things worth knowing before wiring up a network:
+
+- **The audience blocks ads.** OBS streamers and developers run blockers at
+  rates far above the general web. Whatever RPM a network quotes, assume a
+  large fraction of this traffic never sees an impression.
+- **A one-page tool with no prose is a hard sell to ad networks.** Programmes
+  that review sites tend to reject "low value content", and a single app screen
+  qualifies. A gallery of example loops, a page of OBS setup notes and some
+  written docs help with both the review and with search traffic.
+- **Consent is not optional for EU or UK visitors.** Personalised ads there
+  need a certified consent management platform, loaded before the ad script.
+  That is what `headSnippet` is ordered for.
+
+The honest structural point is that hosting is nearly free, so the bar for
+"worth it" is low — but so is the ceiling. For a tool with this audience,
+sponsorship of the project, a tip link, or a paid tier built around something
+the client genuinely cannot do alone will likely out-earn display ads. Anything
+gated purely in client-side JavaScript can be bypassed by anyone who opens the
+file, so a paid tier has to be built on something server-side to mean anything.
+
+### Licensing
+
+There is no LICENSE file yet. Publishing the repo and taking ad revenue on a
+hosted copy are both easier decisions with one in place, and consumers of the
+flake will want to know where they stand. Worth settling before it goes public.
+
+---
+
 ## Repo layout
 
 `index.html` is generated by concatenating the numbered parts in `build/`:
