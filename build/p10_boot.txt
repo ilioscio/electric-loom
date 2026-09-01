@@ -328,6 +328,8 @@ function toggleSeam() {
   if (adRail && adRail.children.length) { HAS_SPONSOR = true; $('#adSec').style.display = ''; }
   else if (adRail) { const s = $('#adSec'); if (s) s.remove(); }
 
+  /* phones get a cheaper preview by default; the selector is hidden there */
+  if (isNarrow()) { const pq = $('#previewQ'); if (pq) pq.value = '0.5'; }
   readTipConfig();
 
   probeCodecs();

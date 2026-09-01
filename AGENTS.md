@@ -36,6 +36,20 @@ time and you use `P`, you have quietly broken the loop for everyone.
 - Grain must be indexed modulo the frame count, and rotations wrapped to one
   turn, or the mantissa drains as spin counts climb.
 
+**Temporal controls must be named `... x/loop`.** This is no longer only a
+readability convention. `Speed` decides what to multiply by testing the label
+against `/x\/loop/` (see `isTempo` in `p06_engine.txt`), so a rate whose label
+omits it will be silently left out of Speed, and a structural control whose
+label wrongly includes it will be scaled and deform the pattern. When adding a
+control that multiplies `TA`, name it accordingly and check it appears in the
+tagged set.
+
+**The narrow-screen layout depends on two things** that are easy to undo by
+accident: `.col` must be `overflow: visible` under the media query, or the
+sticky preview stops sticking; and `.canvasWrap` must be `flex: 0 0 auto`
+there, or its `flex-basis: 0` beats the `height` and the preview collapses to
+its minimum. Both have already been fixed once.
+
 **The default build makes zero network requests.** That is a property worth
 keeping, and it is load-bearing for the in-app help text, which claims it. If
 you add anything that phones home, the claim in `p10_boot.txt` must change too.
@@ -65,7 +79,15 @@ render(1, 200, 112, 2); const b = readFrame(200, 112);
 // worst |a-b| should be <= 2 across every generator
 ```
 
-And for modulators, `modSeamError(m)` must stay under `1e-4`. Note that the
+And for modulators, `modSeamError(m, S.tempo.speed)` must stay under `1e-4`.
+
+**The Flame Fractal is a special case.** It is a chaos game, so any float
+difference in its coefficients is amplified exponentially over the iteration.
+`TA` reaches the shader as a float32, so at `t=1` the flame can report a large
+strict probe while being perfectly seamless — measured at 32/255 probe against
+a seam continuity of 0.83x an ordinary frame step. Every resolved parameter
+and uniform was confirmed identical at both ends, and the render is
+deterministic. Judge the flame by the ratio, never by the probe. Note that the
 in-app **Verify loop** reports two numbers on purpose: the strict `t=0` vs
 `t=1` pixel probe over-reports at extreme settings (float32 phase error in the
 shader reads as a sub-pixel shift), so the headline is seam continuity against

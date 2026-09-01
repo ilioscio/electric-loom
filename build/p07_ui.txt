@@ -268,6 +268,15 @@ function buildParams() {
   const g = GEN_BY_ID[S.gen];
   const host = $('#params');
   buildCtlList(host, g.params, S.params[g.id], pushUrlSoon, 'g:' + g.id + ':');
+
+  /* Speed goes first because it governs every rate below it. */
+  const inner = host._syncAll;
+  const sp = mkSlider(SPEED_DEF, () => S.tempo.speed, v => { S.tempo.speed = v; }, pushUrlSoon);
+  sp.appendChild(el('div', 'hint',
+    'Multiplies every per-loop rate in the whole look: this pattern, the spins, ' +
+    'the palette cycling and any animated control. For slower, raise Duration in Output.'));
+  host.insertBefore(sp, host.firstChild);
+  host._syncAll = () => { inner(); sp._sync(); };
   if (g.flame) {
     const note = el('div', 'note');
     note.innerHTML = '<b>Variation A/B</b> pick which flame variations the transforms use. ' +
@@ -347,11 +356,16 @@ function wireSections() {
       sec.classList.toggle('closed');
       try { localStorage.setItem('eloom.sec.' + sec.dataset.sec, sec.classList.contains('closed') ? '1' : '0'); } catch (e) {}
     });
-    try {
-      const v = localStorage.getItem('eloom.sec.' + sec.dataset.sec);
-      if (v === '1') sec.classList.add('closed');
-      if (v === '0') sec.classList.remove('closed');
-    } catch (e) {}
+    /* On a phone every open section pushes Export further away, so start
+       with only the ones you need and let the rest be tapped open. A stored
+       preference always wins. */
+    let stored = null;
+    try { stored = localStorage.getItem('eloom.sec.' + sec.dataset.sec); } catch (e) {}
+    if (stored === '1') sec.classList.add('closed');
+    else if (stored === '0') sec.classList.remove('closed');
+    else if (isNarrow() && ['gens', 'params', 'out', 'export'].indexOf(sec.dataset.sec) < 0) {
+      sec.classList.add('closed');
+    }
   });
 }
 
@@ -421,7 +435,7 @@ function snapshot() {
     mods[k] = S.mods[k];
   }
   return {
-    v: 1, gen: S.gen, seed: S.seed, mods, modMaster: S.modMaster,
+    v: 1, gen: S.gen, seed: S.seed, mods, modMaster: S.modMaster, tempo: S.tempo,
     params: p, frame: S.frame, post: S.post, palX: S.palX, alpha: S.alpha,
     pal: { stops: S.pal.stops, space: S.pal.space, preset: S.pal.preset },
     out: S.out, gif: S.gif, vid: { q: S.vid.q }
@@ -431,6 +445,7 @@ function applySnapshot(o) {
   if (!o) return;
   if (o.gen && GEN_BY_ID[o.gen]) S.gen = o.gen;
   if (o.seed) S.seed = o.seed;
+  if (o.tempo) Object.assign(S.tempo, o.tempo);
   if (o.params) for (const k in o.params) if (S.params[k]) Object.assign(S.params[k], o.params[k]);
   if (o.frame) Object.assign(S.frame, o.frame);
   if (o.post) Object.assign(S.post, o.post);
@@ -548,6 +563,10 @@ function balanceExposure() {
     else return;
   }
 }
+function randomizeSpeed(rnd) {
+  /* mostly leave it alone; the patterns are authored at speed 1 */
+  S.tempo.speed = rnd() < 0.72 ? 1 : 2 + ((rnd() * 2) | 0);
+}
 function randomizeFrame(rnd) {
   S.frame.zoom = 0.55 + rnd() * 1.6;
   S.frame.rot = (rnd() - 0.5) * 2;
@@ -620,9 +639,11 @@ function doRandomize(full) {
     }
     randomizeFrame(rnd);
     randomizePost(rnd);
+    randomizeSpeed(rnd);
     randomizeMods(rnd, true);
   } else {
     S.mods = {};
+    S.tempo.speed = 1;
   }
   randomizeParams(rnd, S.gen);
   balanceExposure();
@@ -646,10 +667,13 @@ function layout() {
 
 /* ---------------- playback ---------------- */
 let fpsAvg = 0;
+const isNarrow = () => window.innerWidth <= 1040;
 function previewDims() {
   const q = parseFloat($('#previewQ').value) || 1;
   let w = Math.max(64, Math.round(S.out.w * q)), h = Math.max(36, Math.round(S.out.h * q));
-  const cap = 1600;
+  /* A phone has no business rendering 2560x1440 twice over for a preview
+     that is displayed 360 pixels wide. */
+  const cap = isNarrow() ? 800 : 1600;
   if (Math.max(w, h) > cap) { const k = cap / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
   return [w, h];
 }

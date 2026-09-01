@@ -90,6 +90,7 @@ label.lbl{font-size:11px;color:var(--dim);flex:0 0 auto}
 .ctl .top .val{font:11px/1 var(--mono);color:var(--acc);flex:0 0 auto;
   background:#0a1620;border:1px solid #1c3a45;border-radius:4px;padding:2.5px 5px;min-width:46px;text-align:right}
 .ctl .top .val.int{color:var(--acc3);background:#150f22;border-color:#33235c}
+input[type=range]{touch-action:pan-y}   /* drag sideways = slider, swipe up = scroll */
 .ctl input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;display:block}
 .ctl input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:3px;background:linear-gradient(90deg,var(--acc) var(--pct,0%),#20233c var(--pct,0%))}
 .ctl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:50%;background:#e9f7ff;border:2px solid #0b0d16;box-shadow:0 0 0 1px var(--acc),0 0 9px -1px var(--acc)}
@@ -284,13 +285,67 @@ hr.sp{border:none;border-top:1px solid var(--line);margin:11px 0}
   border-radius:8px;padding:9px 15px;font-size:12px;opacity:0;pointer-events:none;transition:.25s;z-index:99;box-shadow:0 12px 40px -10px #000;max-width:70vw}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 @media (max-width:1240px){ main{grid-template-columns:270px 1fr 272px} }
+
+/* ---------------------------------------------------------------------
+   Narrow screens. The three columns become one, the stage is moved to the
+   top and pinned there, and the controls scroll underneath it. The whole
+   point of this tool is watching the picture change as you drag a slider,
+   so the picture has to stay on screen while you drag.
+   --------------------------------------------------------------------- */
 @media (max-width:1040px){
   body{overflow:auto}
-  #app{height:auto;min-height:100vh}
+  #app{height:auto;min-height:100vh;min-height:100dvh}
   main{grid-template-columns:1fr}
-  .col.left,.col.right{border:none;border-top:1px solid var(--line)}
-  .canvasWrap{min-height:46vh}
-  .scroll{overflow:visible}
+  .col{overflow:visible}
+  .scroll{overflow:visible;padding-bottom:0}
+
+  header{height:auto;min-height:46px;flex-wrap:wrap;padding:7px 10px;gap:7px}
+  header .sub{display:none}
+
+  .col.stage{
+    order:-1;position:sticky;top:0;z-index:15;
+    background:linear-gradient(180deg,#08090f,#05060a);
+    border-bottom:1px solid var(--line2);
+    box-shadow:0 12px 26px -16px #000;
+  }
+  .col.left{order:1;border:none;border-top:1px solid var(--line)}
+  .col.right{order:2;border:none;border-top:1px solid var(--line)}
+
+  .canvasWrap{flex:0 0 auto;height:36vh;min-height:170px;max-height:340px;padding:8px}
+  .transport{padding:7px 10px;gap:8px}
+  .transport .tstat{font-size:10px}
+  #previewQ{display:none}
+
+  /* fingers are not mice */
+  .ctl input[type=range]{height:30px}
+  .ctl input[type=range]::-webkit-slider-runnable-track{height:6px}
+  .ctl input[type=range]::-webkit-slider-thumb{width:22px;height:22px;margin-top:-8px}
+  #scrub{height:28px}
+  #scrub::-webkit-slider-runnable-track{height:7px}
+  #scrub::-webkit-slider-thumb{width:19px;height:19px;margin-top:-6px}
+  .stopRow input[type=range]{height:26px}
+  .stopRow input[type=range]::-webkit-slider-runnable-track{height:5px}
+  .stopRow input[type=range]::-webkit-slider-thumb{width:18px;height:18px;margin-top:-6.5px}
+  .btn{padding:9px 12px;font-size:12.5px}
+  .btn.sm{padding:7px 10px;font-size:11.5px}
+  .transport .tbtn{width:38px;height:38px;font-size:14px}
+  .sec>.head{padding:13px 12px}
+  .ctl .modbtn{width:26px;height:23px;font-size:14px}
+  .stopRow .x,.modrow .x{padding:0 8px;font-size:17px}
+  input[type=color]{width:34px;height:28px}
+  input[type=checkbox]{width:17px;height:17px}
+  /* 16px keeps iOS from zooming the page when a field takes focus */
+  input[type=number],input[type=text],select{font-size:16px;padding:7px 8px}
+  .gens{grid-template-columns:1fr 1fr 1fr}
+  .gen canvas{height:52px}
+  .palPresets{grid-template-columns:repeat(5,1fr)}
+}
+@media (max-width:640px){
+  .gens{grid-template-columns:1fr 1fr}
+  .palPresets{grid-template-columns:repeat(4,1fr)}
+  .canvasWrap{flex:0 0 auto;height:33vh;min-height:160px}
+  header .logo{font-size:11px}
+  .field{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -880,11 +935,11 @@ function lfoShape(shape, x, rate, seed) {
    in x. That is a direct mathematical check, which matters, because an RMS
    pixel comparison saturates on fast-moving content and will happily call a
    modulator that leaps most of its range "seamless". */
-function modSeamError(m) {
-  const r = m.rate, sd = (m.seed | 0) || 1, sh = m.shape || 'sine';
+function modSeamError(m, mul) {
+  const r = (m.rate || 1) * (mul || 1), sd = (m.seed | 0) || 1, sh = m.shape || 'sine';
   return Math.abs(lfoShape(sh, 1 - 1e-7, r, sd) - lfoShape(sh, 0, r, sd));
 }
-function lfoValue(m, t) {
+function lfoValue(m, t, mul) {
   /* Wrap t BEFORE adding the phase, not after. wrap1(1) is exactly 0, so the
      argument at t=1 is produced by the identical arithmetic as at t=0 and the
      two agree bit for bit. Doing it the other way round, wrap1(1 + phase) and
@@ -892,7 +947,10 @@ function lfoValue(m, t) {
      until Math.round() turns that into a whole step on an integer control, or
      wrap1 lands either side of its own discontinuity. Both were caught
      breaking the seam by tens of levels before this line read like this. */
-  return lfoShape(m.shape || 'sine', wrap1(wrap1(t) + (m.phase || 0)), m.rate, (m.seed | 0) || 1);
+  /* Speed multiplies the rate. Whole number times whole number is still a
+     whole number, so the shape still joins up with itself. */
+  return lfoShape(m.shape || 'sine', wrap1(wrap1(t) + (m.phase || 0)),
+                  (m.rate || 1) * (mul || 1), (m.seed | 0) || 1);
 }
 /* =====================================================================
    SHADERS
@@ -1280,7 +1338,7 @@ vec3 field(vec2 uv){
 {
   id:'phyllo', name:'Phyllotaxis', heavy:true,
   params:[ PI_(0,'n','Seeds',8,256,150), P(1,'r','Spread',0.2,2.2,0.95,0.005),
-           PI_(2,'spin','Spin x/loop',0,4,1), PI_(3,'tw','Per-seed twist',0,3,1),
+           PI_(2,'spin','Spin x/loop',0,4,1), PI_(3,'tw','Per-seed twist x/loop',0,3,1),
            P(4,'sz','Dot size',0.005,0.3,0.055,0.001), P(5,'taper','Inner size',0.05,2,0.45,0.005),
            P(6,'col','Colour range',0,3,1.0,0.005), P(7,'off','Colour offset',0,1,0,0.005),
            P(8,'gain','Gain',0.1,3,0.85,0.005) ],
@@ -1770,12 +1828,29 @@ const ALPHA_DEF = [
   P(0,'alphaBias','Alpha cutoff',0,1,0.06,0.005)
 ];
 
+/* =====================================================================
+   SPEED
+   ---------------------------------------------------------------------
+   A whole-number multiplier on every per-loop rate in the look. Whole
+   times whole is whole, so every coefficient on TA stays an integer and
+   the loop stays exact - which is the only reason this control can exist
+   at all. It cannot go below 1: halving a rate of 1 would give 0.5 and
+   break the rule. To slow a look down, lengthen the loop instead.
+
+   Which controls count as rates is taken from their label: every temporal
+   control in this program is named "... x/loop" and no structural one is.
+   That convention is load-bearing now, so keep to it.
+   ===================================================================== */
+const SPEED_DEF = { i: 0, k: 'speed', n: 'Speed', mn: 1, mx: 6, d: 1, st: 1, int: true, noMod: true };
+const isTempo = d => /x\/loop/.test(d.n);
+
 function defObj(defs) { const o = {}; defs.forEach(d => o[d.k] = d.d); return o; }
 function genDefaults(g) { const o = {}; g.params.forEach(p => o[p.k] = p.d); return o; }
 
 const S = {
   gen: 'warp',
   seed: 'aurora771',
+  tempo: { speed: 1 },
   params: {},
   frame: defObj(FRAME_DEF),
   post: defObj(POST_DEF),
@@ -1787,6 +1862,10 @@ const S = {
   vid: { codec: '', q: 0.22 }
 };
 GENS.forEach(g => S.params[g.id] = genDefaults(g));
+
+/* tag the rate controls once, from the naming convention */
+[].concat(FRAME_DEF, POST_DEF, PAL_EXTRA_DEF, ALPHA_DEF,
+          ...GENS.map(g => g.params)).forEach(d => { if (isTempo(d)) d.tempo = true; });
 
 /* =====================================================================
    MODULATION
@@ -1809,15 +1888,24 @@ GENS.forEach(g => S.params[g.id] = genDefaults(g));
 S.mods = {};
 S.modMaster = { on: true, depth: 1 };
 
+/* Rates are multiplied by Speed, then clamped to the range the pattern was
+   authored with. The clamp matters: past a certain number of cycles per loop
+   the motion aliases against the frame rate and reads as strobing rather than
+   as speed, and the authored maximum is where that was judged. */
+function applySpeed(v, def) {
+  const s = S.tempo.speed | 0;
+  if (!def || !def.tempo || s <= 1) return v;
+  return clamp(Math.round(v * s), def.mn, def.mx);
+}
 function modulate(path, base, t, def) {
   const m = S.mods[path];
-  if (!m || !m.on || !S.modMaster.on || !m.depth) return base;
+  if (!m || !m.on || !S.modMaster.on || !m.depth) return applySpeed(base, def);
   const range = def ? (def.mx - def.mn) : 1;
-  let v = base + lfoValue(m, t) * m.depth * S.modMaster.depth * range;
+  let v = base + lfoValue(m, t, S.tempo.speed) * m.depth * S.modMaster.depth * range;
   if (def) v = clamp(v, def.mn, def.mx);
   v = Math.fround(v);
   if (def && def.int) v = Math.round(v);
-  return v;
+  return applySpeed(v, def);
 }
 function resolveGroup(prefix, defs, store, t) {
   const o = {};
@@ -1850,7 +1938,7 @@ function worstModSeam() {
   for (const k in S.mods) {
     const m = S.mods[k];
     if (!m || !m.on) continue;
-    const e = modSeamError(m);
+    const e = modSeamError(m, S.tempo.speed);
     if (e > worst) { worst = e; where = k; }
   }
   return { err: worst, path: where };
@@ -2429,6 +2517,15 @@ function buildParams() {
   const g = GEN_BY_ID[S.gen];
   const host = $('#params');
   buildCtlList(host, g.params, S.params[g.id], pushUrlSoon, 'g:' + g.id + ':');
+
+  /* Speed goes first because it governs every rate below it. */
+  const inner = host._syncAll;
+  const sp = mkSlider(SPEED_DEF, () => S.tempo.speed, v => { S.tempo.speed = v; }, pushUrlSoon);
+  sp.appendChild(el('div', 'hint',
+    'Multiplies every per-loop rate in the whole look: this pattern, the spins, ' +
+    'the palette cycling and any animated control. For slower, raise Duration in Output.'));
+  host.insertBefore(sp, host.firstChild);
+  host._syncAll = () => { inner(); sp._sync(); };
   if (g.flame) {
     const note = el('div', 'note');
     note.innerHTML = '<b>Variation A/B</b> pick which flame variations the transforms use. ' +
@@ -2508,11 +2605,16 @@ function wireSections() {
       sec.classList.toggle('closed');
       try { localStorage.setItem('eloom.sec.' + sec.dataset.sec, sec.classList.contains('closed') ? '1' : '0'); } catch (e) {}
     });
-    try {
-      const v = localStorage.getItem('eloom.sec.' + sec.dataset.sec);
-      if (v === '1') sec.classList.add('closed');
-      if (v === '0') sec.classList.remove('closed');
-    } catch (e) {}
+    /* On a phone every open section pushes Export further away, so start
+       with only the ones you need and let the rest be tapped open. A stored
+       preference always wins. */
+    let stored = null;
+    try { stored = localStorage.getItem('eloom.sec.' + sec.dataset.sec); } catch (e) {}
+    if (stored === '1') sec.classList.add('closed');
+    else if (stored === '0') sec.classList.remove('closed');
+    else if (isNarrow() && ['gens', 'params', 'out', 'export'].indexOf(sec.dataset.sec) < 0) {
+      sec.classList.add('closed');
+    }
   });
 }
 
@@ -2582,7 +2684,7 @@ function snapshot() {
     mods[k] = S.mods[k];
   }
   return {
-    v: 1, gen: S.gen, seed: S.seed, mods, modMaster: S.modMaster,
+    v: 1, gen: S.gen, seed: S.seed, mods, modMaster: S.modMaster, tempo: S.tempo,
     params: p, frame: S.frame, post: S.post, palX: S.palX, alpha: S.alpha,
     pal: { stops: S.pal.stops, space: S.pal.space, preset: S.pal.preset },
     out: S.out, gif: S.gif, vid: { q: S.vid.q }
@@ -2592,6 +2694,7 @@ function applySnapshot(o) {
   if (!o) return;
   if (o.gen && GEN_BY_ID[o.gen]) S.gen = o.gen;
   if (o.seed) S.seed = o.seed;
+  if (o.tempo) Object.assign(S.tempo, o.tempo);
   if (o.params) for (const k in o.params) if (S.params[k]) Object.assign(S.params[k], o.params[k]);
   if (o.frame) Object.assign(S.frame, o.frame);
   if (o.post) Object.assign(S.post, o.post);
@@ -2709,6 +2812,10 @@ function balanceExposure() {
     else return;
   }
 }
+function randomizeSpeed(rnd) {
+  /* mostly leave it alone; the patterns are authored at speed 1 */
+  S.tempo.speed = rnd() < 0.72 ? 1 : 2 + ((rnd() * 2) | 0);
+}
 function randomizeFrame(rnd) {
   S.frame.zoom = 0.55 + rnd() * 1.6;
   S.frame.rot = (rnd() - 0.5) * 2;
@@ -2781,9 +2888,11 @@ function doRandomize(full) {
     }
     randomizeFrame(rnd);
     randomizePost(rnd);
+    randomizeSpeed(rnd);
     randomizeMods(rnd, true);
   } else {
     S.mods = {};
+    S.tempo.speed = 1;
   }
   randomizeParams(rnd, S.gen);
   balanceExposure();
@@ -2807,10 +2916,13 @@ function layout() {
 
 /* ---------------- playback ---------------- */
 let fpsAvg = 0;
+const isNarrow = () => window.innerWidth <= 1040;
 function previewDims() {
   const q = parseFloat($('#previewQ').value) || 1;
   let w = Math.max(64, Math.round(S.out.w * q)), h = Math.max(36, Math.round(S.out.h * q));
-  const cap = 1600;
+  /* A phone has no business rendering 2560x1440 twice over for a preview
+     that is displayed 360 pixels wide. */
+  const cap = isNarrow() ? 800 : 1600;
   if (Math.max(w, h) > cap) { const k = cap / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
   return [w, h];
 }
@@ -3849,6 +3961,11 @@ async function verifyLoop() {
             'otherwise look for a rate that is not a whole number per loop.\n' +
             'seam rms ' + seam.toFixed(2) + ' against a typical step of ' + med.toFixed(2) + '.';
     }
+    if (modsClean && !exact && GEN_BY_ID[S.gen].flame) {
+      msg += '\nThe flame is a chaos game, so any float difference in its coefficients is\n' +
+             'amplified exponentially by the iteration. Its strict probe is always noisy;\n' +
+             'the ratio is the number to read.';
+    }
     if (nmods) {
       msg += '\n' + nmods + ' animated control(s) checked' +
              (modsClean ? '; every one joins up with itself.' : '.');
@@ -4193,6 +4310,8 @@ function toggleSeam() {
   if (adRail && adRail.children.length) { HAS_SPONSOR = true; $('#adSec').style.display = ''; }
   else if (adRail) { const s = $('#adSec'); if (s) s.remove(); }
 
+  /* phones get a cheaper preview by default; the selector is hidden there */
+  if (isNarrow()) { const pq = $('#previewQ'); if (pq) pq.value = '0.5'; }
   readTipConfig();
 
   probeCodecs();

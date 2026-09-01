@@ -138,9 +138,29 @@ walking a circle once per loop.
 **Aether Field** uses real 4D value noise sampled on a circle, so the texture genuinely evolves and
 returns rather than sliding past.
 
+**Speed**, at the top of the pattern controls, is a whole-number multiplier on every per-loop
+rate in the look at once: the pattern's own `x/loop` counts, the framing and mirror spins, the
+palette cycling and any animated control. Whole times whole is still whole, so every coefficient
+on the loop angle stays an integer and the loop stays exact — which is the only reason the control
+can exist. It cannot go below 1, because halving a rate of 1 would give a half cycle and break the
+rule; to slow a look down, lengthen the Duration instead. Rates are clamped to the range the
+pattern was authored with, since past a certain number of cycles per loop the motion aliases
+against the frame rate and reads as strobing rather than as speed.
+
 On top of any pattern: zoom, pan, rotation, an n-fold kaleidoscope that can itself spin, a cyclic
 palette that can rotate a whole number of times per loop, and a grade stack (bloom, exposure,
 contrast, saturation, gamma, vignette, grain, chromatic aberration, posterise, scanlines).
+
+## On a phone
+
+The three columns collapse to one, the preview moves to the top and **stays pinned there** while
+the controls scroll underneath, so you can drag a slider and watch the picture change at the same
+time — which is the entire point of the tool and the thing a naive stacked layout destroys.
+
+Touch targets grow, horizontal drags go to the slider while vertical swipes still scroll the page,
+form fields are 16px so iOS does not zoom the layout when one takes focus, most sections start
+collapsed to keep Export within reach, and the preview renders at a cap suited to a phone rather
+than at full output resolution twice over.
 
 ## Palettes
 

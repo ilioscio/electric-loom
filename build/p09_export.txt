@@ -583,6 +583,11 @@ async function verifyLoop() {
             'otherwise look for a rate that is not a whole number per loop.\n' +
             'seam rms ' + seam.toFixed(2) + ' against a typical step of ' + med.toFixed(2) + '.';
     }
+    if (modsClean && !exact && GEN_BY_ID[S.gen].flame) {
+      msg += '\nThe flame is a chaos game, so any float difference in its coefficients is\n' +
+             'amplified exponentially by the iteration. Its strict probe is always noisy;\n' +
+             'the ratio is the number to read.';
+    }
     if (nmods) {
       msg += '\n' + nmods + ' animated control(s) checked' +
              (modsClean ? '; every one joins up with itself.' : '.');

@@ -40,12 +40,29 @@ const ALPHA_DEF = [
   P(0,'alphaBias','Alpha cutoff',0,1,0.06,0.005)
 ];
 
+/* =====================================================================
+   SPEED
+   ---------------------------------------------------------------------
+   A whole-number multiplier on every per-loop rate in the look. Whole
+   times whole is whole, so every coefficient on TA stays an integer and
+   the loop stays exact - which is the only reason this control can exist
+   at all. It cannot go below 1: halving a rate of 1 would give 0.5 and
+   break the rule. To slow a look down, lengthen the loop instead.
+
+   Which controls count as rates is taken from their label: every temporal
+   control in this program is named "... x/loop" and no structural one is.
+   That convention is load-bearing now, so keep to it.
+   ===================================================================== */
+const SPEED_DEF = { i: 0, k: 'speed', n: 'Speed', mn: 1, mx: 6, d: 1, st: 1, int: true, noMod: true };
+const isTempo = d => /x\/loop/.test(d.n);
+
 function defObj(defs) { const o = {}; defs.forEach(d => o[d.k] = d.d); return o; }
 function genDefaults(g) { const o = {}; g.params.forEach(p => o[p.k] = p.d); return o; }
 
 const S = {
   gen: 'warp',
   seed: 'aurora771',
+  tempo: { speed: 1 },
   params: {},
   frame: defObj(FRAME_DEF),
   post: defObj(POST_DEF),
@@ -57,6 +74,10 @@ const S = {
   vid: { codec: '', q: 0.22 }
 };
 GENS.forEach(g => S.params[g.id] = genDefaults(g));
+
+/* tag the rate controls once, from the naming convention */
+[].concat(FRAME_DEF, POST_DEF, PAL_EXTRA_DEF, ALPHA_DEF,
+          ...GENS.map(g => g.params)).forEach(d => { if (isTempo(d)) d.tempo = true; });
 
 /* =====================================================================
    MODULATION
@@ -79,15 +100,24 @@ GENS.forEach(g => S.params[g.id] = genDefaults(g));
 S.mods = {};
 S.modMaster = { on: true, depth: 1 };
 
+/* Rates are multiplied by Speed, then clamped to the range the pattern was
+   authored with. The clamp matters: past a certain number of cycles per loop
+   the motion aliases against the frame rate and reads as strobing rather than
+   as speed, and the authored maximum is where that was judged. */
+function applySpeed(v, def) {
+  const s = S.tempo.speed | 0;
+  if (!def || !def.tempo || s <= 1) return v;
+  return clamp(Math.round(v * s), def.mn, def.mx);
+}
 function modulate(path, base, t, def) {
   const m = S.mods[path];
-  if (!m || !m.on || !S.modMaster.on || !m.depth) return base;
+  if (!m || !m.on || !S.modMaster.on || !m.depth) return applySpeed(base, def);
   const range = def ? (def.mx - def.mn) : 1;
-  let v = base + lfoValue(m, t) * m.depth * S.modMaster.depth * range;
+  let v = base + lfoValue(m, t, S.tempo.speed) * m.depth * S.modMaster.depth * range;
   if (def) v = clamp(v, def.mn, def.mx);
   v = Math.fround(v);
   if (def && def.int) v = Math.round(v);
-  return v;
+  return applySpeed(v, def);
 }
 function resolveGroup(prefix, defs, store, t) {
   const o = {};
@@ -120,7 +150,7 @@ function worstModSeam() {
   for (const k in S.mods) {
     const m = S.mods[k];
     if (!m || !m.on) continue;
-    const e = modSeamError(m);
+    const e = modSeamError(m, S.tempo.speed);
     if (e > worst) { worst = e; where = k; }
   }
   return { err: worst, path: where };

@@ -318,11 +318,11 @@ function lfoShape(shape, x, rate, seed) {
    in x. That is a direct mathematical check, which matters, because an RMS
    pixel comparison saturates on fast-moving content and will happily call a
    modulator that leaps most of its range "seamless". */
-function modSeamError(m) {
-  const r = m.rate, sd = (m.seed | 0) || 1, sh = m.shape || 'sine';
+function modSeamError(m, mul) {
+  const r = (m.rate || 1) * (mul || 1), sd = (m.seed | 0) || 1, sh = m.shape || 'sine';
   return Math.abs(lfoShape(sh, 1 - 1e-7, r, sd) - lfoShape(sh, 0, r, sd));
 }
-function lfoValue(m, t) {
+function lfoValue(m, t, mul) {
   /* Wrap t BEFORE adding the phase, not after. wrap1(1) is exactly 0, so the
      argument at t=1 is produced by the identical arithmetic as at t=0 and the
      two agree bit for bit. Doing it the other way round, wrap1(1 + phase) and
@@ -330,5 +330,8 @@ function lfoValue(m, t) {
      until Math.round() turns that into a whole step on an integer control, or
      wrap1 lands either side of its own discontinuity. Both were caught
      breaking the seam by tens of levels before this line read like this. */
-  return lfoShape(m.shape || 'sine', wrap1(wrap1(t) + (m.phase || 0)), m.rate, (m.seed | 0) || 1);
+  /* Speed multiplies the rate. Whole number times whole number is still a
+     whole number, so the shape still joins up with itself. */
+  return lfoShape(m.shape || 'sine', wrap1(wrap1(t) + (m.phase || 0)),
+                  (m.rate || 1) * (mul || 1), (m.seed | 0) || 1);
 }
