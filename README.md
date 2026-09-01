@@ -228,7 +228,7 @@ constraint on this service will never be hosting cost.
 ### As a flake
 
 ```nix
-inputs.electric-loom.url = "github:YOURNAME/electric-loom";
+inputs.electric-loom.url = "github:ilioscio/electric-loom";
 inputs.electric-loom.inputs.nixpkgs.follows = "nixpkgs";
 ```
 
@@ -372,9 +372,12 @@ file, so a paid tier has to be built on something server-side to mean anything.
 
 ### Licensing
 
-There is no LICENSE file yet. Publishing the repo and taking ad revenue on a
-hosted copy are both easier decisions with one in place, and consumers of the
-flake will want to know where they stand. Worth settling before it goes public.
+Licensed under the **GNU Affero General Public License v3.0** — see
+[`LICENSE`](LICENSE). The AGPL's network clause is the relevant one here: because
+this is served over a network, anyone who hosts a modified copy has to make their
+modified source available to its users. A permissive licence would let a modified
+fork be hosted closed; AGPL keeps improvements in the open even when the only
+"distribution" is a website.
 
 ---
 

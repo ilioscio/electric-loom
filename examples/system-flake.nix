@@ -10,7 +10,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     # From GitHub:
-    electric-loom.url = "github:YOURNAME/electric-loom";
+    electric-loom.url = "github:ilioscio/electric-loom";
     # ...or from your own git remote:
     # electric-loom.url = "git+https://git.example.com/electric-loom.git";
     # ...or a local checkout while you are iterating:

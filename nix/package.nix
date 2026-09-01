@@ -77,6 +77,8 @@ stdenvNoCC.mkDerivation {
       the visitor's browser. The server only ever ships one static file, so
       hosting cost does not scale with how much anyone renders.
     '';
+    homepage = "https://github.com/ilioscio/electric-loom";
+    license = lib.licenses.agpl3Only;
     platforms = lib.platforms.all;
   };
 }
