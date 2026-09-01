@@ -13,6 +13,37 @@ const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp  = (a, b, t) => a + (b - a) * t;
 const TAU = Math.PI * 2;
 
+/* A native <input type=range> inside a scrolling column is a touch trap:
+   touching the track to begin a scroll commits a value change before the
+   browser has decided the gesture is a vertical pan, so the page cannot be
+   scrolled past a slider without dragging it. touch-action:pan-y is meant to
+   fix this but is not honoured on range inputs on every engine (Firefox for
+   Android in particular). This resolves the gesture ourselves: a touch is
+   ignored until it moves further horizontally than vertically, at which point
+   it is a genuine drag; a vertical-dominant move is a scroll and every value
+   change it produces is reverted. The input event is caught in the capture
+   phase, so the control's own handlers never see a blocked change and nothing
+   re-renders while scrolling. Mouse and pen are untouched. */
+function guardSliderTouch(inp) {
+  let active = false, mode = null, sx = 0, sy = 0, startVal = '';
+  inp.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    active = true; mode = null; startVal = inp.value; sx = t.clientX; sy = t.clientY;
+  }, { passive: true });
+  inp.addEventListener('touchmove', e => {
+    if (mode) return;
+    const t = e.touches[0], dx = Math.abs(t.clientX - sx), dy = Math.abs(t.clientY - sy);
+    if (dx > dy && dx > 5) mode = 'slide';
+    else if (dy >= dx && dy > 5) mode = 'scroll';
+  }, { passive: true });
+  const end = () => { active = false; mode = null; };
+  inp.addEventListener('touchend', end, { passive: true });
+  inp.addEventListener('touchcancel', end, { passive: true });
+  inp.addEventListener('input', e => {
+    if (active && mode !== 'slide') { inp.value = startVal; e.stopImmediatePropagation(); }
+  }, true);
+}
+
 let toastTimer = 0;
 function toast(msg, ms) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');

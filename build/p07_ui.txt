@@ -150,6 +150,7 @@ function mkSlider(def, get, set, after, path) {
   const track = el('div', 'trackwrap');
   const inp = document.createElement('input');
   inp.type = 'range'; inp.min = def.mn; inp.max = def.mx; inp.step = def.st;
+  guardSliderTouch(inp);
   const mark = el('i', 'modmark');
   track.appendChild(inp); track.appendChild(mark);
   wrap.appendChild(top); wrap.appendChild(track);
@@ -313,6 +314,7 @@ function buildStops() {
     col.addEventListener('input', () => { st.c = col.value; S.pal.preset = -1; rebuildLut(); pushUrlSoon(); });
     const rng = document.createElement('input');
     rng.type = 'range'; rng.min = 0; rng.max = 1; rng.step = 0.001; rng.value = st.p;
+    guardSliderTouch(rng);
     const pos = el('span', 'pos', st.p.toFixed(2));
     rng.addEventListener('input', () => {
       st.p = clamp(parseFloat(rng.value), 0, 0.999);
