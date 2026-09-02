@@ -25,6 +25,20 @@ coefficient multiplying it must be an integer. UI controls for those use `PI_`
 (integer-stepped), not `P`. If you add a pattern or a control that varies with
 time and you use `P`, you have quietly broken the loop for everyone.
 
+**Theatre mode is the one place the loop rule does not apply, on purpose.**
+`build/p09b_theatre.txt` is a fullscreen live viewer. Its slideshow blends two
+different looks with transition shaders (`TRANS_FS`), which are cross-fades by
+definition. That is allowed *only because theatre never exports anything* - it
+is a view, not an encode. Do not "fix" the cross-fades to obey the seam, and do
+not wire an export through theatre without first solving the fact that a
+two-look transition cannot be a perfect loop. Theatre borrows the single `#gl`
+canvas by re-parenting it into an overlay on enter and returning it on exit; it
+renders through the same `render()` via the `RENDER_TARGET` hook (composite to
+an FBO instead of the canvas) so look A and look B can be captured and mixed.
+The build order matters: `p09b_theatre.txt` is concatenated **after**
+`p09_export.txt` and **before** `p10_boot.txt` in both `build.sh` and the
+`build.cmd` fallback list.
+
 **Three traps that already bit, documented so they do not bite again:**
 
 - `mod()` is unreliable on real drivers. `mod(6.0, 6.0)` returns `6.0` where

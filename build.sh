@@ -38,6 +38,7 @@ cat "$SRC/build/p01_head.txt" \
     "$SRC/build/p07_ui.txt" \
     "$SRC/build/p08_gif.txt" \
     "$SRC/build/p09_export.txt" \
+    "$SRC/build/p09b_theatre.txt" \
     "$SRC/build/p10_boot.txt" > "$OUT/index.html"
 
 # ---- 2. operator injection points -----------------------------------------

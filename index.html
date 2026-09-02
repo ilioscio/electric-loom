@@ -347,6 +347,78 @@ hr.sp{border:none;border-top:1px solid var(--line);margin:11px 0}
   header .logo{font-size:11px}
   .field{grid-template-columns:1fr}
 }
+
+/* ---------------------------------------------------------------------
+   Theatre mode. A fullscreen overlay that borrows the single #gl canvas
+   (it is re-parented in here on enter and returned on exit) and renders it
+   edge to edge at high quality. Controls float over the bottom and fade
+   away when the pointer goes still, so the loop can be watched or used as
+   a live background undisturbed.
+   --------------------------------------------------------------------- */
+#theatre{
+  position:fixed;inset:0;z-index:200;background:#000;display:none;
+  align-items:center;justify-content:center;overflow:hidden;
+}
+#theatre.on{display:flex}
+#theatre.hideCursor{cursor:none}
+#theatre .thStage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+#theatre .thStage canvas{display:block;width:100%;height:100%}
+#theatre .thVignette{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(130% 130% at 50% 50%,transparent 62%,#00000060 100%)}
+
+.thControls{
+  position:absolute;left:50%;bottom:26px;transform:translate(-50%,0);
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;
+  padding:9px 12px;border-radius:14px;max-width:min(94vw,720px);
+  background:#0b0c14cc;border:1px solid var(--line2);
+  box-shadow:0 18px 60px -18px #000,0 0 0 1px #ffffff08 inset;
+  backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);
+  transition:opacity .35s ease,transform .35s ease;
+}
+.thTop{
+  position:absolute;top:20px;left:50%;transform:translate(-50%,0);
+  font:10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:#ffffff88;
+  background:#0b0c14aa;border:1px solid var(--line);border-radius:20px;padding:6px 13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  transition:opacity .35s ease;display:flex;align-items:center;gap:8px;
+}
+.thTop b{color:var(--acc);font-weight:600;letter-spacing:.1em}
+#theatre.thHidden .thControls{opacity:0;transform:translate(-50%,10px);pointer-events:none}
+#theatre.thHidden .thTop{opacity:0}
+.thControls .tb{
+  width:38px;height:38px;border-radius:10px;border:1px solid var(--line2);background:#161a30;
+  display:grid;place-items:center;font-size:15px;color:var(--txt);flex:0 0 auto;transition:.13s;padding:0
+}
+.thControls .tb:hover{background:#222741;border-color:var(--acc);color:var(--acc)}
+.thControls .tb.on{background:linear-gradient(180deg,#1d5a68,#12414d);border-color:var(--acc);color:#dffbff;
+  box-shadow:0 0 16px -5px var(--acc)}
+.thControls .tb.wide{width:auto;padding:0 13px;font-size:12px;gap:7px;letter-spacing:.03em}
+.thControls .tb.exit:hover{border-color:var(--bad);color:var(--bad)}
+.thControls .thsep{width:1px;height:26px;background:var(--line2);margin:0 3px;flex:0 0 auto}
+.thControls .thDur{
+  display:flex;align-items:center;gap:8px;flex:0 0 auto;
+  overflow:hidden;max-width:0;opacity:0;transition:max-width .32s ease,opacity .28s ease;
+}
+.thControls.showDur .thDur{max-width:230px;opacity:1}
+.thControls .thDur label{font:10px/1 var(--mono);color:var(--dim);letter-spacing:.04em;white-space:nowrap}
+.thControls .thDur .dval{font:10px/1 var(--mono);color:var(--acc);min-width:34px;text-align:right}
+.thControls .thDur input[type=range]{
+  width:120px;-webkit-appearance:none;appearance:none;height:22px;background:transparent
+}
+.thControls .thDur input[type=range]::-webkit-slider-runnable-track{
+  height:4px;border-radius:3px;background:linear-gradient(90deg,var(--acc) var(--pct,0%),#20233c var(--pct,0%))}
+.thControls .thDur input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;margin-top:-4.5px;border-radius:50%;background:#e9f7ff;
+  border:2px solid #0b0d16;box-shadow:0 0 0 1px var(--acc),0 0 9px -1px var(--acc)}
+.thControls select{
+  width:auto;min-width:118px;font-size:11.5px;padding:8px 9px;background:#0b0d18;border-color:var(--line2)}
+.thControls .thlabel{font:9px/1 var(--mono);color:var(--dim2);letter-spacing:.12em;text-transform:uppercase}
+@media (max-width:640px){
+  .thControls{bottom:16px;gap:6px;padding:8px 10px}
+  .thControls .tb{width:44px;height:44px;font-size:17px}
+  .thControls .tb.wide{padding:0 12px}
+  .thControls .thDur input[type=range]{width:100px;height:30px}
+}
 </style>
 </head>
 <body>
@@ -357,6 +429,7 @@ hr.sp{border:none;border-top:1px solid var(--line);margin:11px 0}
   <span class="spacer"></span>
   <button class="btn sm" id="btnRandom" title="Randomize everything (R)">Randomize</button>
   <button class="btn sm" id="btnRandParams" title="Randomize parameters only, keep generator + palette">Reroll params</button>
+  <button class="btn sm" id="btnTheatre" title="Fullscreen theatre mode (T)">Theatre</button>
   <button class="btn sm" id="btnCopyLink" title="Copy a link that reproduces this exact look">Copy link</button>
   <a class="btn sm tip" id="tipBtn" style="display:none" target="_blank" rel="noopener noreferrer"></a>
   <button class="btn sm" id="btnHelp">?</button>
@@ -2124,6 +2197,13 @@ const POINTS_PER_PASS = 262144;
    drawing buffer (W x H). Deterministic: same inputs, same pixels.
    ===================================================================== */
 let lastRenderErr = '';
+/* Theatre mode borrows the renderer to capture a look into an offscreen
+   texture instead of the canvas, so two looks can be composited by a
+   transition shader. When RENDER_TARGET is a { fb, w, h } record the final
+   composite is drawn there; left null it draws to the canvas exactly as
+   before. Nothing but theatre touches this, and it always resets it to null
+   after use. */
+let RENDER_TARGET = null;
 function render(t, W, H, ss) {
   if (!GL_OK) return false;
   ensureVao();
@@ -2241,10 +2321,11 @@ function render(t, W, H, ss) {
     // b2 holds the first blur level, b1 the wide one
   }
 
-  /* ---- composite to the canvas ---- */
-  if (cvs.width !== W || cvs.height !== H) { cvs.width = W; cvs.height = H; }
+  /* ---- composite to the canvas (or an offscreen target for theatre) ---- */
+  const tgt = RENDER_TARGET;
+  if (!tgt && (cvs.width !== W || cvs.height !== H)) { cvs.width = W; cvs.height = H; }
   const pc = makeProg('comp', VS_QUAD, FS_COMPOSITE);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, tgt ? tgt.fb : null);
   gl.viewport(0, 0, W, H);
   gl.useProgram(pc.p);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, scene.tex); u1i(pc, 'uScene', 0);
@@ -2964,6 +3045,9 @@ function tick(ts) {
   if (busy) { lastRAF = ts; return; }
   const dt = lastRAF ? (ts - lastRAF) / 1000 : 0;
   lastRAF = ts;
+  /* theatre mode owns the canvas and its own render schedule; the normal
+     preview path is skipped entirely while it is up */
+  if (TH.active) { theatreFrame(Math.min(dt, 0.1)); return; }
   const N = totalFrames();
   if (seamMode) {
     seamTick += dt;
@@ -4014,6 +4098,558 @@ async function verifyLoop() {
   } finally { endBusy(); }
 }
 /* =====================================================================
+   THEATRE MODE
+   ---------------------------------------------------------------------
+   A fullscreen viewer that borrows the single #gl canvas (re-parented in
+   on enter, returned on exit) and renders the current look edge to edge at
+   high quality. Optional slideshow rolls a fresh randomised look, plays it
+   with tasteful motion, then a randomly chosen transition shader carries it
+   into the next one.
+
+   The loop rule is deliberately NOT in force here. A transition blends two
+   different looks, which is a cross-fade by definition, and the whole tool
+   is built to forbid exactly that on anything it exports. That is fine:
+   theatre is a live view only. Nothing rendered here is encoded, so no
+   guarantee is broken - the perfect-loop export path is untouched.
+
+   A "look" is a self-contained snapshot of everything render() reads. Looks
+   are immutable once captured; the renderer is pointed at one by copying its
+   fields onto S. Two looks can therefore be on screen at once (from -> to)
+   during a transition, each rendered into its own texture and mixed.
+   ===================================================================== */
+
+const easeInOut = p => p * p * (3 - 2 * p);
+
+/* the transition library. Order is the switch index in TRANS_FS below. */
+const TH_TRANS = [
+  { n: 'Crossfade' }, { n: 'Linear wipe' }, { n: 'Iris' }, { n: 'Clock wipe' },
+  { n: 'Dissolve' }, { n: 'Pixel melt' }, { n: 'Glitch slices' }, { n: 'Zoom blur' },
+  { n: 'Ripple' }, { n: 'Kaleido swirl' }, { n: 'Curtain wave' }, { n: 'Burn' },
+  { n: 'Diamonds' }, { n: 'Slide push' }
+];
+
+const TH = {
+  active: false, root: null, stage: null, controls: null, nameEl: null,
+  playing: true, slideshow: false,
+  loopSecs: 8,            // how long one loop of a look takes to animate
+  lookDur: 16,            // seconds a look is held before the slideshow moves on
+  transDur: 1.8,          // seconds a transition takes
+  transKind: 'random',    // 'random' or a fixed index into TH_TRANS
+  lastKind: -1,
+  look: null, lookT: 0,
+  phase: 'hold',          // 'hold' | 'trans'
+  holdElapsed: 0,
+  trans: null,            // { from, to, fromT, toT, elapsed, kind, uni }
+  history: [], hi: 0,
+  savedParams: null, savedPlaying: true, canvasHome: null,
+  msEMA: 0
+};
+let TH_QSCALE = 1;         // adaptive resolution scale, settled during holds
+let PAL_LOADED_ID = -1;    // which look's palette is currently uploaded
+
+/* ---------------- look capture / apply ---------------- */
+let LOOK_SEQ = 1;
+function captureLook() {
+  return {
+    id: LOOK_SEQ++,
+    gen: S.gen, seed: S.seed,
+    params: JSON.parse(JSON.stringify(S.params[S.gen])),
+    frame: Object.assign({}, S.frame),
+    post: Object.assign({}, S.post),
+    palX: Object.assign({}, S.palX),
+    alpha: Object.assign({}, S.alpha),
+    tempo: Object.assign({}, S.tempo),
+    mods: JSON.parse(JSON.stringify(S.mods)),
+    pal: { stops: S.pal.stops.map(s => ({ p: s.p, c: s.c })), space: S.pal.space, preset: S.pal.preset }
+  };
+}
+function usePalette(look) {
+  if (PAL_LOADED_ID === look.id) return;
+  S.pal.stops = look.pal.stops; S.pal.space = look.pal.space; S.pal.preset = look.pal.preset;
+  LUT = buildLut(look.pal.stops, look.pal.space);
+  uploadPalette();
+  PAL_LOADED_ID = look.id;
+}
+/* Point the renderer at a look. Assigns references, not copies: looks are
+   never mutated in place (buildRandomLook makes fresh objects), so this is
+   safe and cheap even when called twice per frame during a transition. */
+function applyLookForRender(look) {
+  S.gen = look.gen;
+  S.params[look.gen] = look.params;
+  S.frame = look.frame; S.post = look.post; S.palX = look.palX; S.alpha = look.alpha;
+  S.tempo = look.tempo; S.mods = look.mods;
+  usePalette(look);
+}
+function lookToSnapshot(l) {
+  const p = {}; p[l.gen] = l.params;
+  return {
+    gen: l.gen, seed: l.seed, tempo: l.tempo, params: p,
+    frame: l.frame, post: l.post, palX: l.palX, alpha: l.alpha,
+    pal: { stops: l.pal.stops, space: l.pal.space, preset: l.pal.preset },
+    mods: l.mods, modMaster: S.modMaster
+  };
+}
+
+/* Make sure a rolled look actually moves. A blind parameter roll can leave
+   every temporal control on zero, which reads as a frozen still. Bump the
+   pattern's own "x/loop" rates off zero, and lean on a global spin or the
+   palette cycling as a fallback for any pattern that has none. */
+function ensureLivelyMotion(rnd, gid) {
+  const g = GEN_BY_ID[gid], st = S.params[gid];
+  let moving = 0;
+  g.params.forEach(d => {
+    if (!d.tempo) return;
+    if (Math.abs(st[d.k]) < 0.5 && rnd() < 0.85) {
+      let v = 1 + ((rnd() * Math.min(3, Math.max(1, d.mx))) | 0);
+      if (d.mn < 0 && rnd() < 0.5) v = -v;
+      st[d.k] = clamp(Math.round(v), d.mn, d.mx);
+    }
+    if (Math.abs(st[d.k]) >= 0.5) moving++;
+  });
+  if (rnd() < 0.4 && S.frame.spin === 0) S.frame.spin = rnd() < 0.5 ? 1 : -1;
+  if (rnd() < 0.55 && (S.palX.cycles | 0) === 0) S.palX.cycles = rnd() < 0.5 ? 1 : -1;
+  if (moving === 0 && S.frame.spin === 0 && (S.palX.cycles | 0) === 0) {
+    S.palX.cycles = rnd() < 0.5 ? 1 : -1;
+  }
+}
+
+/* Roll a whole new look. Reuses the app's own randomisers, but writes into
+   fresh objects so no previously captured look is disturbed, then captures.
+   S is left holding this look; the caller re-points the renderer per frame. */
+function buildRandomLook() {
+  S.frame = defObj(FRAME_DEF); S.post = defObj(POST_DEF);
+  S.palX = defObj(PAL_EXTRA_DEF); S.alpha = defObj(ALPHA_DEF);
+  S.tempo = { speed: 1 }; S.mods = {};
+  S.seed = randSeedWord();
+  const rnd = mulberry32(hashStr(S.seed));
+  const pick = GENS.filter(g => !g.flame || Math.random() < 0.18);
+  const gid = pick[(rnd() * pick.length) | 0].id;
+  S.gen = gid;
+  S.params[gid] = genDefaults(GEN_BY_ID[gid]);
+  const pi = (rnd() * PAL_PRESETS.length) | 0;
+  if (rnd() < 0.55) {
+    S.pal = { stops: PAL_PRESETS[pi].s.map((c, j) => ({ p: j / PAL_PRESETS[pi].s.length, c })), space: 'oklab', preset: pi };
+  } else {
+    S.pal = { stops: randomPalette(rnd), space: rnd() < 0.5 ? 'oklab' : 'srgb', preset: -1 };
+  }
+  randomizeFrame(rnd);
+  randomizePost(rnd);
+  S.tempo.speed = rnd() < 0.82 ? 1 : 2;
+  randomizeParams(rnd, gid);
+  ensureLivelyMotion(rnd, gid);
+  randomizeMods(rnd, true);
+  /* upload this palette so the exposure probe reads real colours */
+  LUT = buildLut(S.pal.stops, S.pal.space); uploadPalette(); PAL_LOADED_ID = -1;
+  balanceExposure();
+  return captureLook();
+}
+
+/* ---------------- transition shader ---------------- */
+const TRANS_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uA, uB;
+uniform vec2 uRes, uCenter;
+uniform float uProg, uSeed, uAngle, uDir;
+uniform int uKind;
+out vec4 O;
+const float PI=3.14159265, TAU=6.28318530718;
+
+float h21(vec2 p){ p=fract(p*vec2(127.1,311.7)); p+=dot(p,p+34.234); return fract(p.x*p.y*93.735); }
+float vnoise(vec2 p){
+  vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  float a=h21(i), b=h21(i+vec2(1,0)), c=h21(i+vec2(0,1)), d=h21(i+vec2(1,1));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+float fbm(vec2 p){ float s=0.0,a=0.5; for(int i=0;i<5;i++){ s+=a*vnoise(p); p=p*2.02+vec2(3.1,1.7); a*=0.5; } return s; }
+float sweep(float x,float p,float w){ return 1.0 - smoothstep(p-w, p+w, x); }  // 1 where x<p
+vec3 sa(vec2 uv){ return texture(uA, clamp(uv,0.0,1.0)).rgb; }
+vec3 sb(vec2 uv){ return texture(uB, clamp(uv,0.0,1.0)).rgb; }
+
+void main(){
+  vec2 uv = gl_FragCoord.xy/uRes;
+  float aspect = uRes.x/uRes.y;
+  vec2 asp = vec2(aspect, 1.0);
+  float p = uProg;
+  vec2 ctr = uCenter;
+  vec3 A = sa(uv), B = sb(uv), col;
+
+  if(uKind==0){                                   // crossfade
+    col = mix(A, B, p);
+  } else if(uKind==1){                            // linear wipe
+    vec2 dir = vec2(cos(uAngle), sin(uAngle));
+    float x = dot(uv-0.5, dir)*0.9 + 0.5;
+    float m = sweep(x, p, 0.05);
+    float edge = exp(-pow((x-p)*14.0,2.0));
+    col = mix(A, B, m) + edge*0.6*mix(B, vec3(1.0), 0.3);
+  } else if(uKind==2){                            // iris
+    float d = length((uv-ctr)*asp) / (length(asp)*0.62);
+    float m = sweep(d, p, 0.06);
+    float edge = exp(-pow((d-p)*10.0,2.0));
+    col = mix(A, B, m) + edge*0.5*B;
+  } else if(uKind==3){                            // clock wipe
+    vec2 q = (uv-ctr)*asp;
+    float a01 = atan(q.y, q.x)*uDir/TAU + 0.5;
+    float m = sweep(a01, p, 0.02);
+    m = max(m, sweep(length(q), (p-0.5)*0.4, 0.05));  // centre resolves first
+    col = mix(A, B, clamp(m,0.0,1.0));
+  } else if(uKind==4){                            // dissolve
+    float n = fbm(uv*asp*7.0 + uSeed*11.0);
+    float thr = p*1.12 - 0.06;
+    float m = 1.0 - smoothstep(thr-0.05, thr+0.05, n);
+    float edge = exp(-pow((n-thr)*11.0,2.0)) * (1.0-abs(2.0*p-1.0));
+    col = mix(A, B, m) + edge*mix(vec3(1.0,0.7,0.2), B, 0.4)*0.7;
+  } else if(uKind==5){                            // pixel melt
+    float amt = sin(p*PI);
+    float blocks = mix(max(uRes.x,uRes.y), 12.0, amt);
+    vec2 guv = (floor(uv*blocks)+0.5)/blocks;
+    col = mix(sa(guv), sb(guv), smoothstep(0.35, 0.65, p));
+  } else if(uKind==6){                            // glitch slices
+    float row = floor(uv.y*22.0);
+    float r = h21(vec2(row, uSeed*1.7));
+    float rev = smoothstep(r-0.09, r+0.09, p);
+    float glit = 1.0-abs(2.0*p-1.0);
+    float sh = (r-0.5)*0.22*glit, ab = 0.006*glit;
+    vec2 ua = uv+vec2(sh,0.0), ub = uv-vec2(sh,0.0);
+    vec3 fa = vec3(sa(ua+vec2(ab,0)).r, sa(ua).g, sa(ua-vec2(ab,0)).b);
+    vec3 fb = vec3(sb(ub+vec2(ab,0)).r, sb(ub).g, sb(ub-vec2(ab,0)).b);
+    col = mix(fa, fb, rev);
+  } else if(uKind==7){                            // zoom blur
+    vec2 d = uv-ctr;
+    vec3 accA=vec3(0.0), accB=vec3(0.0);
+    float za = mix(0.0, 0.28, p), zb = mix(0.28, 0.0, p);
+    for(int i=0;i<6;i++){
+      float f = float(i)/5.0;
+      accA += sa(ctr + d*(1.0 + za*f));
+      accB += sb(ctr + d*(1.0 - zb*f));
+    }
+    col = mix(accA/6.0, accB/6.0, smoothstep(0.2, 0.8, p));
+  } else if(uKind==8){                            // ripple
+    float dd = length((uv-ctr)*asp);
+    float fr = mix(-0.15, 1.35, p);
+    float ring = exp(-pow((dd-fr)*7.0,2.0));
+    vec2 dir = normalize((uv-ctr)*asp + 1e-5);
+    vec2 wuv = uv + (dir/asp)*ring*0.05*sin((dd-fr)*45.0);
+    col = mix(sa(wuv), sb(wuv), sweep(dd, fr, 0.03)) + ring*0.35*sb(wuv);
+  } else if(uKind==9){                            // kaleido swirl
+    vec2 q = (uv-ctr)*asp;
+    float dd = length(q);
+    float a = atan(q.y,q.x) + sin(p*PI)*3.4*uDir*exp(-dd*1.6);
+    vec2 suv = ctr + (vec2(cos(a),sin(a))*dd)/asp;
+    col = mix(sa(suv), sb(suv), smoothstep(0.4, 0.6, p));
+  } else if(uKind==10){                           // curtain wave
+    float wob = sin(uv.x*TAU*2.0 + uSeed*10.0)*0.05*(1.0-abs(2.0*p-1.0));
+    float y = (uDir>0.0 ? uv.y : 1.0-uv.y) + wob;
+    float m = sweep(y, p, 0.06);
+    float edge = exp(-pow((y-p)*12.0,2.0));
+    col = mix(A, B, m) + edge*0.5*mix(B, vec3(1.0), 0.25);
+  } else if(uKind==11){                           // burn
+    float n = fbm(uv*asp*4.5 + uSeed*7.0);
+    float thr = mix(-0.15, 1.2, p);
+    float burned = 1.0 - smoothstep(thr-0.03, thr+0.03, n);
+    float heat = exp(-pow((n-thr)*9.0,2.0));
+    vec3 fire = mix(vec3(1.0,0.25,0.0), vec3(1.0,0.9,0.35), smoothstep(thr-0.1, thr, n));
+    col = mix(mix(A, B, burned), fire, clamp(heat*1.3, 0.0, 1.0));
+  } else if(uKind==12){                           // diamonds
+    vec2 g = uv*11.0*vec2(aspect,1.0);
+    vec2 f = abs(fract(g)-0.5);
+    float local = 1.0 - (f.x+f.y);
+    float thr = p*1.15 - 0.075 + (h21(floor(g)+uSeed)-0.5)*0.08;
+    col = mix(A, B, smoothstep(thr-0.06, thr+0.06, local));
+  } else {                                        // 13: slide push
+    vec2 dir = vec2(cos(uAngle), sin(uAngle));
+    float x = dot(uv-0.5, dir) + 0.5;
+    col = mix(sa(uv - dir*p), sb(uv + dir*(1.0-p)), step(x, p));
+  }
+
+  O = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+`;
+
+function rollTransition() {
+  const kinds = TH_TRANS.length;
+  let kind;
+  if (TH.transKind === 'random') {
+    kind = (Math.random() * kinds) | 0;
+    if (kind === TH.lastKind) kind = (kind + 1) % kinds;
+  } else kind = TH.transKind | 0;
+  TH.lastKind = kind;
+  const rnd = Math.random;
+  let angle = rnd() * TAU;
+  if (kind === 1 || kind === 13) angle = ((rnd() * 8) | 0) * (TAU / 8);  // snap wipe/push
+  return {
+    kind, seed: rnd() * 10, angle,
+    cx: 0.5 + (rnd() - 0.5) * 0.4,
+    cy: 0.5 + (rnd() - 0.5) * 0.4,
+    dir: rnd() < 0.5 ? 1 : -1
+  };
+}
+
+/* ---------------- rendering ---------------- */
+function theatreDims() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = Math.round(window.innerWidth * dpr), h = Math.round(window.innerHeight * dpr);
+  const cap = Math.round(2560 * TH_QSCALE), m = Math.max(w, h);
+  if (m > cap) { const k = cap / m; w = Math.round(w * k); h = Math.round(h * k); }
+  w -= w & 1; h -= h & 1;
+  return [Math.max(2, w), Math.max(2, h)];
+}
+function ssFor(look, W, H) {
+  const g = GEN_BY_ID[look.gen];
+  return ((g && g.heavy) || Math.max(W, H) > 1500) ? 1 : 2;
+}
+function renderLookTo(look, t, W, H, target) {
+  applyLookForRender(look);
+  RENDER_TARGET = target || null;
+  render(t, W, H, ssFor(look, W, H));
+  RENDER_TARGET = null;
+}
+function drawTransition(texA, texB, kind, p, uni) {
+  const pr = makeProg('thTrans', VS_QUAD, TRANS_FS);
+  if (!pr) return;
+  gl.disable(gl.BLEND);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, cvs.width, cvs.height);
+  gl.useProgram(pr.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texA); u1i(pr, 'uA', 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texB); u1i(pr, 'uB', 1);
+  u2f(pr, 'uRes', cvs.width, cvs.height);
+  u1f(pr, 'uProg', p); u1i(pr, 'uKind', kind);
+  u1f(pr, 'uSeed', uni.seed); u1f(pr, 'uAngle', uni.angle);
+  u2f(pr, 'uCenter', uni.cx, uni.cy); u1f(pr, 'uDir', uni.dir);
+  ensureVao(); drawQuad();
+  gl.activeTexture(gl.TEXTURE0);
+}
+
+function startTransition(toLook) {
+  const uni = rollTransition();
+  TH.trans = {
+    from: TH.look, to: toLook,
+    fromT: TH.lookT, toT: wrap1(TH.lookT + 0.13),  // slight phase offset for parallax
+    elapsed: 0, kind: uni.kind, uni
+  };
+  TH.phase = 'trans';
+  updateThName(toLook);
+}
+function finishTransition() {
+  TH.look = TH.trans.to;
+  TH.lookT = TH.trans.toT;
+  TH.phase = 'hold'; TH.holdElapsed = 0; TH.trans = null;
+}
+/* advance the slideshow; forward through history if we have stepped back,
+   otherwise roll a fresh look and remember it */
+function slideNext() {
+  let look;
+  if (TH.hi < TH.history.length - 1) { TH.hi++; look = TH.history[TH.hi]; }
+  else {
+    look = buildRandomLook();
+    TH.history.push(look);
+    if (TH.history.length > 40) TH.history.shift();
+    TH.hi = TH.history.length - 1;
+  }
+  startTransition(look);
+}
+function slidePrev() {
+  if (TH.hi <= 0) { toast('At the first look'); return; }
+  TH.hi--; startTransition(TH.history[TH.hi]);
+}
+
+function theatreFrame(dt) {
+  const dims = theatreDims(), W = dims[0], H = dims[1];
+  const t0 = performance.now();
+
+  if (TH.playing) {
+    if (TH.phase === 'hold') {
+      TH.holdElapsed += dt; TH.lookT = wrap1(TH.lookT + dt / TH.loopSecs);
+    } else {
+      const tr = TH.trans;
+      tr.elapsed += dt;
+      tr.fromT = wrap1(tr.fromT + dt / TH.loopSecs);
+      tr.toT = wrap1(tr.toT + dt / TH.loopSecs);
+    }
+  }
+
+  /* trigger the auto-advance before rendering, so the new look is built
+     (its exposure probe briefly renders small) and the transition's first
+     frame is what actually reaches the canvas this tick - no flash. */
+  if (TH.phase === 'hold' && TH.slideshow && TH.holdElapsed >= TH.lookDur) slideNext();
+
+  if (TH.phase === 'trans') {
+    const tr = TH.trans;
+    const p = clamp(tr.elapsed / TH.transDur, 0, 1);
+    const A = need('thA', W, H, gl.RGBA8), B = need('thB', W, H, gl.RGBA8);
+    renderLookTo(tr.from, tr.fromT, W, H, A);
+    renderLookTo(tr.to, tr.toT, W, H, B);
+    if (cvs.width !== W || cvs.height !== H) { cvs.width = W; cvs.height = H; }
+    drawTransition(A.tex, B.tex, tr.kind, easeInOut(p), tr.uni);
+    if (p >= 1) finishTransition();
+  } else {
+    renderLookTo(TH.look, TH.lookT, W, H, null);
+  }
+
+  /* settle the resolution only between transitions, so quality never pops
+     mid-effect */
+  const ms = performance.now() - t0;
+  TH.msEMA = TH.msEMA ? TH.msEMA * 0.9 + ms * 0.1 : ms;
+  if (TH.phase === 'hold') {
+    if (TH.msEMA > 22 && TH_QSCALE > 0.55) TH_QSCALE = Math.max(0.55, TH_QSCALE - 0.08);
+    else if (TH.msEMA < 11 && TH_QSCALE < 1) TH_QSCALE = Math.min(1, TH_QSCALE + 0.04);
+  }
+}
+
+/* ---------------- controls / DOM ---------------- */
+let thHideTimer = 0;
+function thShowControls() {
+  if (!TH.root) return;
+  TH.root.classList.remove('thHidden', 'hideCursor');
+  clearTimeout(thHideTimer);
+  thHideTimer = setTimeout(() => { if (TH.active) TH.root.classList.add('thHidden', 'hideCursor'); }, 2800);
+}
+function onTheatrePointer(e) {
+  if (!TH.root) return;
+  TH.root.classList.remove('thHidden', 'hideCursor');
+  clearTimeout(thHideTimer);
+  const overCtl = e.target && e.target.closest && e.target.closest('.thControls');
+  if (!overCtl) thHideTimer = setTimeout(() => { if (TH.active) TH.root.classList.add('thHidden', 'hideCursor'); }, 2800);
+}
+function updateThName(look) { if (TH.nameEl && look) TH.nameEl.textContent = GEN_BY_ID[look.gen].name; }
+function toggleTheatrePlay() { TH.playing = !TH.playing; syncTheatreControls(); }
+function toggleSlideshow() {
+  TH.slideshow = !TH.slideshow;
+  if (TH.slideshow) TH.holdElapsed = 0;
+  syncTheatreControls();
+  toast(TH.slideshow ? 'Slideshow on' : 'Slideshow off');
+}
+function slideNextManual() { if (TH.phase !== 'trans') slideNext(); }
+function slidePrevManual() { if (TH.phase !== 'trans') slidePrev(); }
+
+function buildTheatreDom() {
+  if (TH.root) return;
+  const root = el('div'); root.id = 'theatre';
+  const stage = el('div', 'thStage'); root.appendChild(stage);
+  root.appendChild(el('div', 'thVignette'));
+
+  const top = el('div', 'thTop');
+  top.innerHTML = 'Theatre &mdash; <b></b> &nbsp;&middot;&nbsp; move to show controls, Esc to exit';
+  TH.nameEl = top.querySelector('b');
+  root.appendChild(top);
+
+  const c = el('div', 'thControls');
+  const tb = (cls, html, title, fn) => {
+    const b = el('button', 'tb' + (cls ? ' ' + cls : ''));
+    b.innerHTML = html; if (title) b.title = title;
+    b.addEventListener('click', e => { e.stopPropagation(); thShowControls(); fn(e); });
+    return b;
+  };
+  TH.btnPrev = tb('', '&#9198;', 'Previous look (Left arrow)', slidePrevManual);
+  TH.btnPlay = tb('', '&#10074;&#10074;', 'Play / pause (Space)', toggleTheatrePlay);
+  TH.btnNext = tb('', '&#9197;', 'Next look (Right arrow)', slideNextManual);
+  TH.btnShow = tb('wide', 'Slideshow', 'Auto-cycle looks with transitions (S)', toggleSlideshow);
+
+  const dur = el('div', 'thDur');
+  dur.appendChild(el('label', '', 'Each'));
+  const drng = document.createElement('input');
+  drng.type = 'range'; drng.min = 4; drng.max = 60; drng.step = 1; drng.value = TH.lookDur;
+  const dval = el('span', 'dval', TH.lookDur + 's');
+  drng.addEventListener('input', () => {
+    TH.lookDur = +drng.value; dval.textContent = TH.lookDur + 's';
+    drng.style.setProperty('--pct', ((TH.lookDur - 4) / 56 * 100) + '%');
+    thShowControls();
+  });
+  drng.addEventListener('pointerdown', e => e.stopPropagation());
+  dur.appendChild(drng); dur.appendChild(dval);
+  TH.durRange = drng; TH.durVal = dval;
+
+  const sel = document.createElement('select');
+  const orand = document.createElement('option');
+  orand.value = 'random'; orand.textContent = 'Transition: Random'; sel.appendChild(orand);
+  TH_TRANS.forEach((tr, i) => {
+    const o = document.createElement('option'); o.value = String(i); o.textContent = tr.n; sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => {
+    TH.transKind = sel.value === 'random' ? 'random' : (+sel.value); thShowControls();
+  });
+  sel.addEventListener('pointerdown', e => e.stopPropagation());
+  TH.transSel = sel;
+
+  TH.btnExit = tb('exit', '&#10005;', 'Exit theatre (Esc)', exitTheatre);
+
+  c.appendChild(TH.btnPrev); c.appendChild(TH.btnPlay); c.appendChild(TH.btnNext);
+  c.appendChild(el('div', 'thsep'));
+  c.appendChild(TH.btnShow); c.appendChild(dur);
+  c.appendChild(el('div', 'thsep'));
+  c.appendChild(sel);
+  c.appendChild(el('div', 'thsep'));
+  c.appendChild(TH.btnExit);
+  root.appendChild(c);
+
+  ['pointermove', 'pointerdown', 'touchstart'].forEach(ev =>
+    root.addEventListener(ev, onTheatrePointer, { passive: true }));
+
+  document.body.appendChild(root);
+  TH.root = root; TH.stage = stage; TH.controls = c;
+}
+function syncTheatreControls() {
+  if (!TH.root) return;
+  TH.btnPlay.innerHTML = TH.playing ? '&#10074;&#10074;' : '&#9654;';
+  TH.btnPlay.classList.toggle('on', TH.playing);
+  TH.btnShow.classList.toggle('on', TH.slideshow);
+  TH.controls.classList.toggle('showDur', TH.slideshow);
+  TH.durRange.style.setProperty('--pct', ((TH.lookDur - 4) / 56 * 100) + '%');
+  TH.durVal.textContent = TH.lookDur + 's';
+  TH.transSel.value = TH.transKind === 'random' ? 'random' : String(TH.transKind);
+  updateThName(TH.look);
+}
+
+/* ---------------- enter / exit ---------------- */
+function onFsChange() { if (TH.active && !document.fullscreenElement) exitTheatre(); }
+
+function enterTheatre() {
+  if (!GL_OK || busy || TH.active) return;
+  buildTheatreDom();
+  TH.savedParams = JSON.parse(JSON.stringify(S.params));
+  TH.savedPlaying = playing;
+  TH.look = captureLook();
+  PAL_LOADED_ID = -1;
+  TH.history = [TH.look]; TH.hi = 0;
+  TH.phase = 'hold'; TH.holdElapsed = 0; TH.lookT = wrap1(tNow);
+  TH.playing = true; TH.slideshow = false; TH.trans = null;
+  TH_QSCALE = 1; TH.msEMA = 0;
+  TH.active = true;
+
+  TH.canvasHome = { parent: cvs.parentNode, next: cvs.nextSibling };
+  TH.stage.appendChild(cvs);
+  cvs.style.width = '100%'; cvs.style.height = '100%';
+  document.body.style.overflow = 'hidden';
+  TH.root.classList.add('on');
+
+  syncTheatreControls();
+  thShowControls();
+  document.addEventListener('fullscreenchange', onFsChange);
+  if (TH.root.requestFullscreen) TH.root.requestFullscreen().catch(() => {});
+  toast('Theatre mode · T or Esc to exit');
+}
+function exitTheatre() {
+  if (!TH.active) return;
+  TH.active = false;
+  document.removeEventListener('fullscreenchange', onFsChange);
+  if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  TH.root.classList.remove('on', 'thHidden', 'hideCursor');
+  clearTimeout(thHideTimer);
+
+  const home = TH.canvasHome;
+  cvs.style.width = ''; cvs.style.height = '';
+  if (home && home.parent) home.parent.insertBefore(cvs, home.next);
+  document.body.style.overflow = '';
+
+  const shown = TH.look;
+  S.params = TH.savedParams;      // discard slideshow's scratch stores
+  playing = TH.savedPlaying;
+  PAL_LOADED_ID = -1;
+  applySnapshot(lookToSnapshot(shown));  // keep the look we were watching, editable
+  syncPlayBtn();
+  layout(); markDirty(); pushUrl();
+}
+/* =====================================================================
    PRESETS
    ===================================================================== */
 const PRESET_KEY = 'eloom.presets.v1';
@@ -4227,6 +4863,7 @@ function wire() {
   /* header */
   $('#btnRandom').addEventListener('click', () => doRandomize(true));
   $('#btnRandParams').addEventListener('click', () => doRandomize(false));
+  $('#btnTheatre').addEventListener('click', enterTheatre);
   $('#btnCopyLink').addEventListener('click', async () => {
     pushUrl();
     try { await navigator.clipboard.writeText(location.href); toast('Link copied. It rebuilds this exact look.'); }
@@ -4265,6 +4902,17 @@ function wire() {
 
   /* keyboard */
   window.addEventListener('keydown', e => {
+    /* theatre mode captures its own keys, whatever has focus */
+    if (TH.active) {
+      switch (e.key) {
+        case 'Escape': case 't': case 'T': e.preventDefault(); exitTheatre(); break;
+        case ' ': e.preventDefault(); toggleTheatrePlay(); break;
+        case 'ArrowRight': slideNextManual(); break;
+        case 'ArrowLeft': slidePrevManual(); break;
+        case 's': case 'S': toggleSlideshow(); break;
+      }
+      return;
+    }
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') {
       if (e.key === 'Escape') e.target.blur();
@@ -4272,6 +4920,7 @@ function wire() {
     }
     const N = totalFrames();
     switch (e.key) {
+      case 't': case 'T': if (!busy) enterTheatre(); break;
       case ' ': e.preventDefault(); togglePlay(); break;
       case 'r': case 'R': if (!busy) doRandomize(true); break;
       case 'p': case 'P': if (!busy) doRandomize(false); break;

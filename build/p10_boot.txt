@@ -212,6 +212,7 @@ function wire() {
   /* header */
   $('#btnRandom').addEventListener('click', () => doRandomize(true));
   $('#btnRandParams').addEventListener('click', () => doRandomize(false));
+  $('#btnTheatre').addEventListener('click', enterTheatre);
   $('#btnCopyLink').addEventListener('click', async () => {
     pushUrl();
     try { await navigator.clipboard.writeText(location.href); toast('Link copied. It rebuilds this exact look.'); }
@@ -250,6 +251,17 @@ function wire() {
 
   /* keyboard */
   window.addEventListener('keydown', e => {
+    /* theatre mode captures its own keys, whatever has focus */
+    if (TH.active) {
+      switch (e.key) {
+        case 'Escape': case 't': case 'T': e.preventDefault(); exitTheatre(); break;
+        case ' ': e.preventDefault(); toggleTheatrePlay(); break;
+        case 'ArrowRight': slideNextManual(); break;
+        case 'ArrowLeft': slidePrevManual(); break;
+        case 's': case 'S': toggleSlideshow(); break;
+      }
+      return;
+    }
     const tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea') {
       if (e.key === 'Escape') e.target.blur();
@@ -257,6 +269,7 @@ function wire() {
     }
     const N = totalFrames();
     switch (e.key) {
+      case 't': case 'T': if (!busy) enterTheatre(); break;
       case ' ': e.preventDefault(); togglePlay(); break;
       case 'r': case 'R': if (!busy) doRandomize(true); break;
       case 'p': case 'P': if (!busy) doRandomize(false); break;

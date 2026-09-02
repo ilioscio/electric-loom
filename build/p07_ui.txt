@@ -684,6 +684,9 @@ function tick(ts) {
   if (busy) { lastRAF = ts; return; }
   const dt = lastRAF ? (ts - lastRAF) / 1000 : 0;
   lastRAF = ts;
+  /* theatre mode owns the canvas and its own render schedule; the normal
+     preview path is skipped entirely while it is up */
+  if (TH.active) { theatreFrame(Math.min(dt, 0.1)); return; }
   const N = totalFrames();
   if (seamMode) {
     seamTick += dt;
