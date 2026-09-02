@@ -3015,6 +3015,7 @@ function doRandomize(full) {
 
 /* ---------------- layout ---------------- */
 function layout() {
+  if (TH.active) return;   // theatre sizes #gl itself; the fullscreen resize must not clobber it
   const wrap = $('.canvasWrap');
   const r = wrap.getBoundingClientRect();
   const availW = Math.max(80, r.width - 32), availH = Math.max(80, r.height - 32);

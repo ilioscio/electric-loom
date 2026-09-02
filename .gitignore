@@ -3,5 +3,6 @@ build/_check.js
 dist/
 dist-ads/
 dist2/
+feedback/
 result
 result-*
