@@ -711,9 +711,11 @@ const TAU = Math.PI * 2;
    Android in particular). This resolves the gesture ourselves: a touch is
    ignored until it moves further horizontally than vertically, at which point
    it is a genuine drag; a vertical-dominant move is a scroll and every value
-   change it produces is reverted. The input event is caught in the capture
-   phase, so the control's own handlers never see a blocked change and nothing
-   re-renders while scrolling. Mouse and pen are untouched. */
+   change it produces is reverted. Blocking relies on listener order at the
+   target (capture vs bubble makes no difference there): this guard's input
+   listener runs first and stopImmediatePropagation cuts the rest off, so
+   call guardSliderTouch before wiring the control's own input handler and
+   nothing re-renders while scrolling. Mouse and pen are untouched. */
 function guardSliderTouch(inp) {
   let active = false, mode = null, sx = 0, sy = 0, startVal = '';
   inp.addEventListener('touchstart', e => {
@@ -4167,7 +4169,9 @@ function captureLook() {
 function usePalette(look) {
   if (PAL_LOADED_ID === look.id) return;
   S.pal.stops = look.pal.stops; S.pal.space = look.pal.space; S.pal.preset = look.pal.preset;
-  LUT = buildLut(look.pal.stops, look.pal.space);
+  /* looks are immutable, so the built LUT is too - cache it on the look
+     rather than rebuilding twice per frame while a transition alternates */
+  LUT = look.lut || (look.lut = buildLut(look.pal.stops, look.pal.space));
   uploadPalette();
   PAL_LOADED_ID = look.id;
 }
@@ -4389,8 +4393,10 @@ function rollTransition() {
 function theatreDims() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   let w = Math.round(window.innerWidth * dpr), h = Math.round(window.innerHeight * dpr);
-  const cap = Math.round(2560 * TH_QSCALE), m = Math.max(w, h);
-  if (m > cap) { const k = cap / m; w = Math.round(w * k); h = Math.round(h * k); }
+  /* the quality scale multiplies the whole frame, not just the 2560 cap:
+     a 720p device that cannot keep up must be allowed below native too */
+  const k = Math.min(1, 2560 / Math.max(w, h)) * TH_QSCALE;
+  if (k < 1) { w = Math.round(w * k); h = Math.round(h * k); }
   w -= w & 1; h -= h & 1;
   return [Math.max(2, w), Math.max(2, h)];
 }
@@ -4458,12 +4464,14 @@ function theatreFrame(dt) {
   const dims = theatreDims(), W = dims[0], H = dims[1];
   const t0 = performance.now();
 
-  if (TH.playing) {
-    if (TH.phase === 'hold') {
-      TH.holdElapsed += dt; TH.lookT = wrap1(TH.lookT + dt / TH.loopSecs);
-    } else {
-      const tr = TH.trans;
-      tr.elapsed += dt;
+  if (TH.phase === 'hold') {
+    if (TH.playing) { TH.holdElapsed += dt; TH.lookT = wrap1(TH.lookT + dt / TH.loopSecs); }
+  } else {
+    const tr = TH.trans;
+    /* a transition always runs to completion, even paused: prev/next while
+       paused would otherwise freeze it at progress 0 and block the controls */
+    tr.elapsed += dt;
+    if (TH.playing) {
       tr.fromT = wrap1(tr.fromT + dt / TH.loopSecs);
       tr.toT = wrap1(tr.toT + dt / TH.loopSecs);
     }
@@ -4903,8 +4911,14 @@ function wire() {
 
   /* keyboard */
   window.addEventListener('keydown', e => {
-    /* theatre mode captures its own keys, whatever has focus */
+    /* theatre mode captures its own keys - except when one of its own
+       controls has focus, where arrows and letters must keep their meaning */
     if (TH.active) {
+      const ttag = (e.target.tagName || '').toLowerCase();
+      if (ttag === 'input' || ttag === 'select') {
+        if (e.key === 'Escape') { e.preventDefault(); exitTheatre(); }
+        return;
+      }
       switch (e.key) {
         case 'Escape': case 't': case 'T': e.preventDefault(); exitTheatre(); break;
         case ' ': e.preventDefault(); toggleTheatrePlay(); break;

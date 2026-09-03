@@ -251,8 +251,14 @@ function wire() {
 
   /* keyboard */
   window.addEventListener('keydown', e => {
-    /* theatre mode captures its own keys, whatever has focus */
+    /* theatre mode captures its own keys - except when one of its own
+       controls has focus, where arrows and letters must keep their meaning */
     if (TH.active) {
+      const ttag = (e.target.tagName || '').toLowerCase();
+      if (ttag === 'input' || ttag === 'select') {
+        if (e.key === 'Escape') { e.preventDefault(); exitTheatre(); }
+        return;
+      }
       switch (e.key) {
         case 'Escape': case 't': case 'T': e.preventDefault(); exitTheatre(); break;
         case ' ': e.preventDefault(); toggleTheatrePlay(); break;

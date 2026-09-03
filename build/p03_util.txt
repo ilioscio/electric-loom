@@ -21,9 +21,11 @@ const TAU = Math.PI * 2;
    Android in particular). This resolves the gesture ourselves: a touch is
    ignored until it moves further horizontally than vertically, at which point
    it is a genuine drag; a vertical-dominant move is a scroll and every value
-   change it produces is reverted. The input event is caught in the capture
-   phase, so the control's own handlers never see a blocked change and nothing
-   re-renders while scrolling. Mouse and pen are untouched. */
+   change it produces is reverted. Blocking relies on listener order at the
+   target (capture vs bubble makes no difference there): this guard's input
+   listener runs first and stopImmediatePropagation cuts the rest off, so
+   call guardSliderTouch before wiring the control's own input handler and
+   nothing re-renders while scrolling. Mouse and pen are untouched. */
 function guardSliderTouch(inp) {
   let active = false, mode = null, sx = 0, sy = 0, startVal = '';
   inp.addEventListener('touchstart', e => {
