@@ -19,7 +19,7 @@ if %errorlevel%==0 (
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$enc = New-Object System.Text.UTF8Encoding $false;" ^
-  "$parts = 'p01_head','p02_body','p03_util','p04_shaders','p05_flame','p06_engine','p07_ui','p08_gif','p09_export','p09b_theatre','p10_boot';" ^
+  "$parts = 'p01_head','p02_body','p03_util','p04_shaders','p05_flame','p06_engine','p07_ui','p08_gif','p09_export','p09b_theatre','p09c_audio','p10_boot';" ^
   "$text = ($parts | ForEach-Object { [IO.File]::ReadAllText((Join-Path $PWD ('build\' + $_ + '.txt')), $enc) }) -join '';" ^
   "$text = $text -replace '<!--EL_HEAD-->\r?\n', '' -replace '<!--EL_AD_RAIL-->\r?\n', '' -replace '<!--EL_BODY_END-->\r?\n', '';" ^
   "$text = $text -replace '__SITE_URL__', '';" ^

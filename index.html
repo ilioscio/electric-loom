@@ -413,6 +413,16 @@ hr.sp{border:none;border-top:1px solid var(--line);margin:11px 0}
 .thControls select{
   width:auto;min-width:118px;font-size:11.5px;padding:8px 9px;background:#0b0d18;border-color:var(--line2)}
 .thControls .thlabel{font:9px/1 var(--mono);color:var(--dim2);letter-spacing:.12em;text-transform:uppercase}
+/* the Audio toggle wears the live level as a glow, so "is it hearing me?"
+   answers itself without a meter widget */
+.thControls .tb.aud.on{
+  box-shadow:0 0 calc(5px + 22px*var(--lv,0)) calc(-3px + 3px*var(--lv,0)) var(--acc)}
+.thControls .thAud{
+  display:flex;align-items:center;flex:0 0 auto;
+  overflow:hidden;max-width:0;opacity:0;transition:max-width .32s ease,opacity .28s ease;
+}
+.thControls.showAud .thAud{max-width:150px;opacity:1}
+.thControls .thAud select{min-width:104px;margin-left:8px}
 @media (max-width:640px){
   .thControls{bottom:16px;gap:6px;padding:8px 10px}
   .thControls .tb{width:44px;height:44px;font-size:17px}
@@ -4406,6 +4416,7 @@ function ssFor(look, W, H) {
 }
 function renderLookTo(look, t, W, H, target) {
   applyLookForRender(look);
+  if (AU.on) audioApply(look);   // perturbs scratch copies; the look is untouched
   RENDER_TARGET = target || null;
   render(t, W, H, ssFor(look, W, H));
   RENDER_TARGET = null;
@@ -4463,6 +4474,7 @@ function slidePrev() {
 function theatreFrame(dt) {
   const dims = theatreDims(), W = dims[0], H = dims[1];
   const t0 = performance.now();
+  audioTick(dt);   // cheap when off: just decays the channels to rest
 
   if (TH.phase === 'hold') {
     if (TH.playing) { TH.holdElapsed += dt; TH.lookT = wrap1(TH.lookT + dt / TH.loopSecs); }
@@ -4480,7 +4492,10 @@ function theatreFrame(dt) {
   /* trigger the auto-advance before rendering, so the new look is built
      (its exposure probe briefly renders small) and the transition's first
      frame is what actually reaches the canvas this tick - no flash. */
-  if (TH.phase === 'hold' && TH.slideshow && TH.holdElapsed >= TH.lookDur) slideNext();
+  /* with audio on, a due transition waits (briefly) for the next kick so
+     look changes land on the beat rather than beside it */
+  if (TH.phase === 'hold' && TH.slideshow && TH.holdElapsed >= TH.lookDur &&
+      (!AU.on || AU.kickEdge || TH.holdElapsed >= TH.lookDur + 2.5)) slideNext();
 
   if (TH.phase === 'trans') {
     const tr = TH.trans;
@@ -4588,6 +4603,8 @@ function buildTheatreDom() {
   c.appendChild(el('div', 'thsep'));
   c.appendChild(sel);
   c.appendChild(el('div', 'thsep'));
+  audioBuildControls(c, tb);
+  c.appendChild(el('div', 'thsep'));
   c.appendChild(TH.btnExit);
   root.appendChild(c);
 
@@ -4606,6 +4623,7 @@ function syncTheatreControls() {
   TH.durRange.style.setProperty('--pct', ((TH.lookDur - 4) / 56 * 100) + '%');
   TH.durVal.textContent = TH.lookDur + 's';
   TH.transSel.value = TH.transKind === 'random' ? 'random' : String(TH.transKind);
+  audioSyncUi();
   updateThName(TH.look);
 }
 
@@ -4635,11 +4653,13 @@ function enterTheatre() {
   thShowControls();
   document.addEventListener('fullscreenchange', onFsChange);
   if (TH.root.requestFullscreen) TH.root.requestFullscreen().catch(() => {});
+  audioOnEnterTheatre();
   toast('Theatre mode · T or Esc to exit');
 }
 function exitTheatre() {
   if (!TH.active) return;
   TH.active = false;
+  audioOnExitTheatre();
   document.removeEventListener('fullscreenchange', onFsChange);
   if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
   TH.root.classList.remove('on', 'thHidden', 'hideCursor');
@@ -4657,6 +4677,286 @@ function exitTheatre() {
   applySnapshot(lookToSnapshot(shown));  // keep the look we were watching, editable
   syncPlayBtn();
   layout(); markDirty(); pushUrl();
+}
+
+/* =====================================================================
+   THEATRE AUDIO REACTIVITY
+   ---------------------------------------------------------------------
+   Theatre-only, like everything in p09b: a mic (or, on Chromium, a shared
+   tab's audio) is analysed locally and a handful of semantic channels -
+   bass, mid, treble, overall level, and a decaying kick impulse - drive
+   the look's most visually structural parameters. Nothing is recorded,
+   nothing leaves the page, and the stream is released the moment theatre
+   closes, so the "no network requests" claim in the help text stands.
+
+   Two disciplines, both load-bearing:
+
+   - Audio never binds an "x/loop" control. Those are coefficients on TA;
+     changing one between frames jumps the phase t*rate and reads as a
+     glitch, not a beat. Bindings go to structural/amplitude params only,
+     and AUDIO_BINDS is checked against that rule at first use.
+
+   - Looks stay immutable. Perturbation happens on scratch copies that are
+     installed over S after applyLookForRender, so history entries, the
+     exit snapshot and the export path never see an audio-bent value.
+
+   Levels differ wildly between devices, so nothing here trusts absolute
+   amplitude. Each band runs through a rolling floor (slow to rise, quick
+   to fall) and a rolling peak (quick to rise, slow to fall) and is read
+   as its position between the two - any mic self-calibrates within a
+   second or two of music. A span gate keeps a silent room at zero rather
+   than amplifying its noise floor.
+   ===================================================================== */
+
+const AU = {
+  on: false,
+  want: false,            // re-arm the mic automatically on the next enterTheatre
+  source: 'mic',          // 'mic' | 'tab'
+  ctx: null, analyser: null, stream: null, srcNode: null, bins: null,
+  bands: null,            // { bass, mid, treb, level } envelope followers
+  ch: { bass: 0, mid: 0, treb: 0, level: 0, kick: 0 },
+  kickEdge: false,        // true only on the frame a kick fires; slideshow sync reads it
+  bassAvg: 0, fluxAvg: 0, kickCool: 0,
+  btn: null, sel: null, wrap: null,
+  scratch: { params: {}, frame: {}, post: {}, palX: {} }
+};
+
+/* Which of each pattern's own knobs the music moves, and how hard.
+   [param key, channel, amount] - amount is a signed fraction of the param's
+   authored range, added on top of the look's value and clamped back into
+   range. Chosen by eye per pattern: the aim is one unmistakable "breathing"
+   control on bass, something crisp on treble, and a punch on the kick. */
+const AUDIO_BINDS = {
+  plasma:  [['warp', 'bass', .30], ['grit', 'treb', .35], ['bands', 'mid', .18]],
+  warp:    [['w', 'bass', .28], ['ridge', 'mid', .40], ['tint', 'treb', .30]],
+  mandala: [['glow', 'bass', .45], ['base', 'level', .25], ['thick', 'treb', -.30]],
+  tunnel:  [['gain', 'bass', .30], ['mix', 'kick', .35], ['core', 'treb', .20]],
+  ribbons: [['nw', 'bass', .30], ['soft', 'kick', -.35], ['floor', 'treb', .25]],
+  moire:   [['spread', 'mid', .22], ['off', 'bass', .25], ['con', 'treb', .25]],
+  meta:    [['sz', 'bass', .40], ['gain', 'kick', .25], ['spread', 'treb', .25]],
+  voronoi: [['jit', 'bass', .35], ['edge', 'treb', -.28], ['grad', 'mid', .30]],
+  truchet: [['w', 'bass', .40], ['grad', 'treb', .25], ['bg', 'kick', .25]],
+  julia:   [['r', 'bass', .20], ['col', 'treb', .18], ['ink', 'kick', .30]],
+  chladni: [['edge', 'bass', .40], ['dark', 'level', -.30], ['col', 'treb', .22]],
+  phyllo:  [['sz', 'bass', .38], ['gain', 'kick', .30], ['taper', 'mid', .25]],
+  ripple:  [['rad', 'mid', .22], ['fall', 'treb', -.30], ['col', 'bass', .25]],
+  hex:     [['r', 'bass', .28], ['pc', 'treb', .35], ['bg', 'kick', .20]],
+  fold:    [['rad', 'bass', .25], ['sharp', 'kick', .25], ['trail', 'mid', .22]],
+  retro:   [['sr', 'bass', .30], ['lw', 'kick', .30], ['haze', 'mid', .30], ['sc', 'treb', .20]],
+  flow4:   [['warp', 'bass', .28], ['ridge', 'mid', .35], ['gain', 'kick', .22]],
+  flame:   [['jit', 'bass', .35], ['sat', 'treb', .20], ['spread', 'kick', .15]]
+};
+
+/* Resolve a generator's bind list to param defs once, and enforce the
+   tempo rule while at it: a binding to an x/loop control is a programming
+   error, caught loudly here rather than shipped as a subtle glitch. */
+const AUDIO_BINDS_RESOLVED = {};
+function audioBindsFor(gid) {
+  let r = AUDIO_BINDS_RESOLVED[gid];
+  if (r) return r;
+  r = [];
+  (AUDIO_BINDS[gid] || []).forEach(b => {
+    const def = GEN_BY_ID[gid].params.find(d => d.k === b[0]);
+    if (!def) { console.error('audio bind to missing param ' + gid + '.' + b[0]); return; }
+    if (def.tempo) { console.error('audio bind to tempo param ' + gid + '.' + b[0] + ' - refused'); return; }
+    r.push({ def, ch: b[1], amt: b[2] * (def.mx - def.mn) });
+  });
+  return (AUDIO_BINDS_RESOLVED[gid] = r);
+}
+
+/* ---------------- analysis ---------------- */
+function auMkBand(lo, hi) { return { lo, hi, i0: 0, i1: 1, raw: 0, floor: 1, peak: 0, sm: 0 }; }
+
+function audioSetupBands() {
+  AU.bands = {
+    bass:  auMkBand(30, 150),
+    mid:   auMkBand(150, 2000),
+    treb:  auMkBand(2000, 9000),
+    level: auMkBand(30, 10000)
+  };
+  const half = AU.ctx.sampleRate / 2, n = AU.bins.length;
+  for (const k in AU.bands) {
+    const b = AU.bands[k];
+    b.i0 = clamp(Math.round(b.lo / half * n), 0, n - 1);
+    b.i1 = clamp(Math.round(b.hi / half * n), b.i0 + 1, n);
+  }
+}
+
+function audioTick(dt) {
+  AU.kickEdge = false;
+  if (!AU.on || !AU.analyser) {
+    for (const k in AU.ch) AU.ch[k] *= Math.exp(-dt * 6);
+    return;
+  }
+  AU.analyser.getByteFrequencyData(AU.bins);
+  for (const k in AU.bands) {
+    const b = AU.bands[k];
+    let s = 0;
+    for (let i = b.i0; i < b.i1; i++) s += AU.bins[i];
+    const raw = b.raw = s / ((b.i1 - b.i0) * 255);
+    /* floor: quick to fall onto real silence, slow to creep up under music */
+    b.floor += (raw - b.floor) * Math.min(1, dt * (raw < b.floor ? 2.0 : 0.05));
+    /* peak: quick to catch a loud passage, slow to forget it */
+    b.peak += (raw - b.peak) * Math.min(1, dt * (raw > b.peak ? 8.0 : 0.12));
+    const span = b.peak - b.floor;
+    /* the silence gate is deliberately low and absolute. Averaging a whole
+       band of bins crushes noise fluctuation (a silent room settles near
+       0.005 span) while even a very quiet mic's music dynamics clear this -
+       and it must not scale with the floor, or a hot steady signal would be
+       gated for merely being loud */
+    let n = span > 0.015 ? clamp((raw - b.floor) / span, 0, 1) : 0;
+    n = n * n * (3 - 2 * n);   // quieten the quiet, punch the peaks
+    b.sm += (n - b.sm) * Math.min(1, dt * (n > b.sm ? 18 : 5));
+    AU.ch[k] = b.sm;
+  }
+  /* kick: a jump in bass energy above its own recent average fires an
+     impulse that decays over ~150ms. The threshold rides the average flux,
+     so a busy mix does not machine-gun and a sparse one still lands. */
+  const bass = AU.bands.bass;
+  const flux = Math.max(0, bass.raw - AU.bassAvg);
+  AU.bassAvg += (bass.raw - AU.bassAvg) * Math.min(1, dt * 3);
+  AU.fluxAvg += (flux - AU.fluxAvg) * Math.min(1, dt * 1.2);
+  AU.kickCool -= dt;
+  const gated = (bass.peak - bass.floor) > 0.015;
+  if (gated && AU.kickCool <= 0 && flux > AU.fluxAvg * 2.2 + 0.01) {
+    AU.ch.kick = 1; AU.kickCool = 0.14; AU.kickEdge = true;
+  } else {
+    AU.ch.kick *= Math.exp(-dt * 7);
+  }
+  if (AU.btn) AU.btn.style.setProperty('--lv', AU.ch.level.toFixed(3));
+}
+
+/* ---------------- perturbation ---------------- */
+/* Install audio-bent copies of the look's stores over S. Called after
+   applyLookForRender and consumed synchronously by render(), so one shared
+   scratch set is enough even during a two-look transition. The params
+   scratch may keep stale keys from a previously perturbed generator;
+   render() only reads the current generator's defs, so they are inert. */
+function audioApply(look) {
+  const ch = AU.ch, sc = AU.scratch;
+  const f = Object.assign(sc.frame, look.frame);
+  const p = Object.assign(sc.post, look.post);
+  const x = Object.assign(sc.palX, look.palX);
+  const st = Object.assign(sc.params, look.params);
+  S.frame = f; S.post = p; S.palX = x; S.params[look.gen] = st;
+
+  /* the base recipe every pattern gets: a breath of light and a punch-in */
+  f.zoom = clamp(f.zoom * (1 - 0.045 * ch.bass - 0.05 * ch.kick), 0.1, 6);
+  p.exposure = clamp(p.exposure * (1 + 0.18 * ch.level + 0.30 * ch.kick), 0.05, 4);
+  p.bloom = clamp(p.bloom + 0.35 * ch.bass + 0.45 * ch.kick, 0, 3);
+  x.offset = wrap1(x.offset + 0.10 * ch.treb);
+
+  audioBindsFor(look.gen).forEach(b => {
+    st[b.def.k] = clamp(st[b.def.k] + b.amt * ch[b.ch], b.def.mn, b.def.mx);
+  });
+}
+
+/* ---------------- capture ---------------- */
+const audioTabOK = () => !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+
+async function audioStart(kind) {
+  audioReleaseStream();
+  let stream;
+  try {
+    if (kind === 'tab') {
+      /* getDisplayMedia will not do audio-only; ask for video too and drop
+         it immediately - only the audio track is kept. */
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      stream.getVideoTracks().forEach(t => t.stop());
+      if (!stream.getAudioTracks().length) {
+        stream.getTracks().forEach(t => t.stop());
+        toast('No audio in that share - tick "share tab audio" in the picker');
+        audioSyncUi(); return;
+      }
+    } else {
+      /* the browser's own processing is tuned for speech and fights the
+         normalisation here - ask for the raw signal */
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    }
+  } catch (err) {
+    toast(err && err.name === 'NotAllowedError'
+      ? (kind === 'tab' ? 'Tab share was cancelled' : 'Microphone access was blocked')
+      : 'No audio input available');
+    AU.want = false; audioSyncUi(); return;
+  }
+  if (!TH.active) { stream.getTracks().forEach(t => t.stop()); return; }
+
+  if (!AU.ctx) AU.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  AU.ctx.resume().catch(() => {});
+  if (!AU.analyser) {
+    AU.analyser = AU.ctx.createAnalyser();
+    AU.analyser.fftSize = 2048;
+    AU.analyser.smoothingTimeConstant = 0.35;
+    AU.bins = new Uint8Array(AU.analyser.frequencyBinCount);
+  }
+  audioSetupBands();
+  AU.stream = stream;
+  AU.srcNode = AU.ctx.createMediaStreamSource(stream);
+  AU.srcNode.connect(AU.analyser);   // analysis only, never to the speakers
+  /* the browser's own "stop sharing" UI ends the track out from under us */
+  stream.getAudioTracks()[0].addEventListener('ended', () => { if (AU.on) audioStop(false); });
+  AU.on = true; AU.want = true; AU.source = kind;
+  audioSyncUi();
+  toast(kind === 'tab' ? 'Reacting to tab audio' : 'Reacting to the microphone');
+}
+
+function audioReleaseStream() {
+  if (AU.srcNode) { try { AU.srcNode.disconnect(); } catch (e) {} AU.srcNode = null; }
+  if (AU.stream) { AU.stream.getTracks().forEach(t => t.stop()); AU.stream = null; }
+  AU.on = false;
+  for (const k in AU.ch) AU.ch[k] = 0;
+  if (AU.btn) AU.btn.style.setProperty('--lv', '0');
+}
+
+function audioStop(keepWant) {
+  audioReleaseStream();
+  if (!keepWant) AU.want = false;
+  if (AU.ctx) AU.ctx.suspend().catch(() => {});
+  audioSyncUi();
+}
+
+function toggleAudio() {
+  if (AU.on) { audioStop(false); toast('Audio off'); }
+  else audioStart(AU.source);
+}
+
+/* ---------------- theatre hooks ---------------- */
+/* on enter: a mic that was on last session re-arms silently (permission is
+   already granted); tab audio always needs the picker gesture again */
+function audioOnEnterTheatre() {
+  if (AU.want && AU.source === 'mic') audioStart('mic');
+}
+/* on exit: release the capture so no mic indicator outlives the theatre */
+function audioOnExitTheatre() {
+  if (AU.on) audioStop(true);
+}
+
+/* controls, appended into the theatre bar by buildTheatreDom */
+function audioBuildControls(c, tb) {
+  AU.btn = tb('wide aud', 'Audio',
+    'React to sound (A) - analysed locally, never recorded or sent', toggleAudio);
+  c.appendChild(AU.btn);
+  const wrap = el('div', 'thAud');
+  const sel = document.createElement('select');
+  const om = document.createElement('option');
+  om.value = 'mic'; om.textContent = 'Microphone'; sel.appendChild(om);
+  if (audioTabOK()) {
+    const ot = document.createElement('option');
+    ot.value = 'tab'; ot.textContent = 'Tab audio'; sel.appendChild(ot);
+  }
+  sel.addEventListener('change', () => { audioStart(sel.value); thShowControls(); });
+  sel.addEventListener('pointerdown', e => e.stopPropagation());
+  wrap.appendChild(sel);
+  c.appendChild(wrap);
+  AU.sel = sel; AU.wrap = wrap;
+}
+function audioSyncUi() {
+  if (!AU.btn) return;
+  AU.btn.classList.toggle('on', AU.on);
+  TH.controls.classList.toggle('showAud', AU.on && AU.sel.options.length > 1);
+  AU.sel.value = AU.source;
 }
 /* =====================================================================
    PRESETS
@@ -4925,6 +5225,7 @@ function wire() {
         case 'ArrowRight': slideNextManual(); break;
         case 'ArrowLeft': slidePrevManual(); break;
         case 's': case 'S': toggleSlideshow(); break;
+        case 'a': case 'A': toggleAudio(); break;
       }
       return;
     }

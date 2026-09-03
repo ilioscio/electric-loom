@@ -265,6 +265,7 @@ function wire() {
         case 'ArrowRight': slideNextManual(); break;
         case 'ArrowLeft': slidePrevManual(); break;
         case 's': case 'S': toggleSlideshow(); break;
+        case 'a': case 'A': toggleAudio(); break;
       }
       return;
     }

@@ -304,6 +304,7 @@ function ssFor(look, W, H) {
 }
 function renderLookTo(look, t, W, H, target) {
   applyLookForRender(look);
+  if (AU.on) audioApply(look);   // perturbs scratch copies; the look is untouched
   RENDER_TARGET = target || null;
   render(t, W, H, ssFor(look, W, H));
   RENDER_TARGET = null;
@@ -361,6 +362,7 @@ function slidePrev() {
 function theatreFrame(dt) {
   const dims = theatreDims(), W = dims[0], H = dims[1];
   const t0 = performance.now();
+  audioTick(dt);   // cheap when off: just decays the channels to rest
 
   if (TH.phase === 'hold') {
     if (TH.playing) { TH.holdElapsed += dt; TH.lookT = wrap1(TH.lookT + dt / TH.loopSecs); }
@@ -378,7 +380,10 @@ function theatreFrame(dt) {
   /* trigger the auto-advance before rendering, so the new look is built
      (its exposure probe briefly renders small) and the transition's first
      frame is what actually reaches the canvas this tick - no flash. */
-  if (TH.phase === 'hold' && TH.slideshow && TH.holdElapsed >= TH.lookDur) slideNext();
+  /* with audio on, a due transition waits (briefly) for the next kick so
+     look changes land on the beat rather than beside it */
+  if (TH.phase === 'hold' && TH.slideshow && TH.holdElapsed >= TH.lookDur &&
+      (!AU.on || AU.kickEdge || TH.holdElapsed >= TH.lookDur + 2.5)) slideNext();
 
   if (TH.phase === 'trans') {
     const tr = TH.trans;
@@ -486,6 +491,8 @@ function buildTheatreDom() {
   c.appendChild(el('div', 'thsep'));
   c.appendChild(sel);
   c.appendChild(el('div', 'thsep'));
+  audioBuildControls(c, tb);
+  c.appendChild(el('div', 'thsep'));
   c.appendChild(TH.btnExit);
   root.appendChild(c);
 
@@ -504,6 +511,7 @@ function syncTheatreControls() {
   TH.durRange.style.setProperty('--pct', ((TH.lookDur - 4) / 56 * 100) + '%');
   TH.durVal.textContent = TH.lookDur + 's';
   TH.transSel.value = TH.transKind === 'random' ? 'random' : String(TH.transKind);
+  audioSyncUi();
   updateThName(TH.look);
 }
 
@@ -533,11 +541,13 @@ function enterTheatre() {
   thShowControls();
   document.addEventListener('fullscreenchange', onFsChange);
   if (TH.root.requestFullscreen) TH.root.requestFullscreen().catch(() => {});
+  audioOnEnterTheatre();
   toast('Theatre mode · T or Esc to exit');
 }
 function exitTheatre() {
   if (!TH.active) return;
   TH.active = false;
+  audioOnExitTheatre();
   document.removeEventListener('fullscreenchange', onFsChange);
   if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
   TH.root.classList.remove('on', 'thHidden', 'hideCursor');

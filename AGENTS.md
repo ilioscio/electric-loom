@@ -39,6 +39,28 @@ The build order matters: `p09b_theatre.txt` is concatenated **after**
 `p09_export.txt` and **before** `p10_boot.txt` in both `build.sh` and the
 `build.cmd` fallback list.
 
+**Theatre audio reactivity lives in `build/p09c_audio.txt`** (concatenated
+right after `p09b_theatre.txt`, same two files to update). Mic or tab audio
+is analysed locally with an `AnalyserNode` into a few auto-gained channels
+that perturb the current look per frame. Three rules keep it honest:
+
+- **Audio never binds an `x/loop` control.** Those are coefficients on `TA`;
+  bending one between frames jumps the phase `t*rate` and reads as a glitch,
+  not a beat. `audioBindsFor()` refuses such a binding loudly — do not relax
+  that check, extend `AUDIO_BINDS` with structural params only.
+- **Looks stay immutable.** `audioApply()` installs perturbed *scratch
+  copies* over `S` after `applyLookForRender`; history entries, the exit
+  snapshot and the export path never see an audio-bent value.
+- **Nothing leaves the page.** The stream feeds analysis only, is never
+  recorded, and is released on theatre exit — the zero-network-requests
+  claim in `p10_boot.txt` still holds. Keep it that way.
+
+Auto-gain means no user calibration: each band is read against its own
+rolling floor/peak, with a span gate so a silent room sits at zero. If a
+new pattern is added, give it an `AUDIO_BINDS` entry (bass on its most
+structural knob is the house recipe); patterns without one still get the
+global bloom/exposure/zoom pulse.
+
 **Three traps that already bit, documented so they do not bite again:**
 
 - `mod()` is unreliable on real drivers. `mod(6.0, 6.0)` returns `6.0` where
